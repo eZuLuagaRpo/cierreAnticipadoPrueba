@@ -106,7 +106,7 @@ Ambas conexiones se prueban aunque una falle. La prueba no valida permisos de cr
 
 ### Credenciales
 
-Las credenciales ingresadas se usan únicamente en memoria durante la ejecución; no se guardan en disco ni se escriben en el log. Si la ventana no puede abrirse (Tkinter no disponible), el proceso las solicita por consola.
+Las credenciales ingresadas se usan únicamente en memoria durante la ejecución; no se guardan en disco ni se escriben en el log. El campo de contraseña incluye la opción **Mostrar / Ocultar**. Si la ventana no puede abrirse (Tkinter o Pillow no disponibles), el proceso las solicita por consola.
 
 ---
 
@@ -278,7 +278,21 @@ Punto de entrada de la prueba de conexiones. Ejecuta `_probar_nacional` y `_prob
 | `solicitar_credenciales(ruta_fondo, info, pedir_lz, texto_boton)` | Muestra la ventana y devuelve `(credenciales_nacional, credenciales_lz)`; `credenciales_lz` es `None` si `pedir_lz` es `false`. Devuelve `None` si se cancela |
 | `mostrar_resultado(tipo, titulo, mensaje)` | Mensaje final de tipo `info`, `advertencia` o `error` |
 
-La ventana usa la paleta de Bancolombia (amarillo `#FDDA24`, negro `#2C2A29`, blanco) sobre `img/background.png`. La fuente se elige en el orden `CIB Font Sans`, `Segoe UI`, `Arial`, según cuál esté instalada. El tamaño se ajusta al contenido. Sin Pillow, el fondo queda blanco; sin Tkinter, las credenciales se piden por consola.
+La ventana usa la paleta de Bancolombia (amarillo `#FDDA24`, negro `#2C2A29`, blanco) sobre `img/background.png`. Está construida sobre un único `Canvas`:
+
+- La tarjeta, su sombra, el recuadro de información, los campos, los botones y el ícono se dibujan con Pillow. Las formas se dibujan a 4 veces su tamaño y se reducen, para obtener esquinas redondeadas con bordes suaves.
+- Los campos de texto son `Entry` de Tkinter ubicados sobre las formas dibujadas.
+- Los campos cambian de gris a blanco con borde oscuro al recibir el foco; los botones cambian de color al pasar el mouse.
+
+| Elemento | Detalle |
+|---|---|
+| Medidas | Definidas como constantes de `_VentanaCredenciales` (`ANCHO_TARJETA`, `ALTO_CAMPO`, `RADIO_TARJETA`, etc.) en píxeles a escala 100 % |
+| Escala de pantalla | El proceso se declara compatible con alta resolución (`SetProcessDpiAwareness`) y multiplica todas las medidas por la escala de Windows (125 %, 150 %, ...), por lo que la ventana se ve nítida y con las mismas proporciones |
+| Alto de la ventana | Se ajusta al contenido; en pantallas bajas se reduce el margen vertical para que quepa |
+| Fuente | Primera instalada en el orden `CIB Font Sans`, `Segoe UI`, `Arial` |
+| Colores | Constantes al inicio de `interfaz.py` (`AMARILLO`, `NEGRO`, `GRIS_CAMPO`, `FONDO_INFO`, etc.) |
+
+Sin Tkinter o sin Pillow, las credenciales se piden por consola.
 
 ### `carga.py`
 
@@ -438,7 +452,7 @@ El consumo de memoria del PC depende del tamaño del lote, no del total de filas
 | `Las columnas de la consulta de la Nacional no coinciden` | Se modificó `consulta_ceautoe.sql` | Alinear la consulta, `COLUMNAS_NACIONAL` y los SQL de la LZ (ver [Mantenimiento](#mantenimiento)) |
 | `El conteo no coincide` | Ejecuciones simultáneas sobre la misma tabla o cambio de fecha en el servidor durante la ejecución | Volver a ejecutar; el `INSERT OVERWRITE` reemplaza la partición del día |
 | Advertencia de `fecha_efectiva` vacía o inválida | Valores en `CEFT65` que no son fechas `AAAAMMDD` válidas (ej. `0`) | Revisar los registros en origen; el resto de la carga es válida |
-| La ventana no abre y pide datos por consola | Tkinter no disponible en el Python del equipo | Ingresar las credenciales por consola o reinstalar Python con Tkinter |
+| La ventana no abre y pide datos por consola | Tkinter o Pillow no disponibles en el Python del equipo | Ingresar las credenciales por consola, ejecutar desde el `.bat` (instala Pillow) o reinstalar Python con Tkinter |
 | Tildes incorrectas en los comentarios de la tabla | Archivo SQL guardado en una codificación distinta de UTF-8 | Guardar el archivo en UTF-8 |
 | Queda la tabla `tmp_visionr_ceautoe` en `zona_p` | Una ejecución se interrumpió antes de la limpieza | No requiere acción; la siguiente ejecución la elimina |
 
