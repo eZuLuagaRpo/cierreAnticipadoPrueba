@@ -1,0 +1,127 @@
+{
+    "global"               : {
+        "dsn"                                       : "Impala-cdp-kudu",
+        "cdp_endpoint"                              : "https://bancolombia-rt-prd01-master10.bco-cdp.i5u2-f1yr.cloudera.site/bancolombia-rt-prd01/cdp-proxy-api/",
+        "username"                                  : "srv_svccdp03",
+        "useSparky"                                 : false,
+        "parametros_lz"       : {
+			"nom_proyecto"                              :  "vsec-gsfc-ajustesifrs",
+            "nom_proyecto_"                             :  "c_ajustesifrs",
+            "indice"                                    :  "ajusteifrs",
+            "zona_p"                                    :  "proceso_vspc_serv",
+            "zona_s_productos"                          :  "s_productos",
+            "zona_r"                                    :  "resultados_vspc_serv",
+            "zona_m"                                    :  "proceso",
+            "in_oozie"                                  :  "master_customer_data",
+            "anio_particion"                            :  "year(now())",
+            "mes_ingestion"                             :  "month(now())",
+            "dia_ingestion"                             :  "day(now())",
+			"nom_tablas":{
+				"logs"                                  :   "c_logs_ajusteifrs",
+				"ctrl"                                  :   ["c_ctrl_masterval_ajusteifrs","c_masterval_ajusteifrs"],
+				"params"                                :   ["c_params_ajusteifrs"],
+				"output"                                :   ["c_tabla_final_report","c_tabla_final_model","c_tabla_final_fco"]
+
+			}
+        }
+    },
+    "Etl": {
+        "tareas": [
+            {
+                "nombre": "ultima_ingestion",
+                "kwargs": []
+            },
+            {
+                "nombre": "fn_ejecutar_etl",
+                "kwargs": []
+            }
+        ],
+        "archivos": [
+            "etl/001_demo.sql",
+            "etl/temp_fechas_calculadas.sql",
+            "etl/temp_validacion_siil17.sql",
+            "etl/control_fuentes_1.sql",
+            "etl/control_fuentes_2.sql",
+            "etl/control_fuentes_3.sql",
+            "etl/control_fuentes_4.sql",
+            "etl/temp_extract_dato_maestro_ifrs.sql",
+            "etl/temp_extract_dato_maestro_ifrs_2.sql",
+            "etl/carga_procesos.sql",
+            "etl/ajustes_ifrs.sql",
+            "etl/castigos_bvl.sql",
+            "etl/castigos_hip_dep_mdp.sql",
+            "etl/castigos_sufi.sql",
+            "etl/condonaciones_bvl_1.sql",
+            "etl/condonaciones_bvl_2.sql",
+            "etl/int_suspenso_sufi_1.sql",
+            "etl/int_suspenso_sufi_2.sql",
+            "etl/mora_balance_sufi_1.sql",
+            "etl/mora_balance_sufi_2.sql",
+            "etl/union_insumo_int_suspe.sql",
+            "etl/int_suspenso_sufi_pyg.sql",
+            "etl/int_suspenso_bvl_pyg_1.sql",
+            "etl/int_suspenso_bvl_pyg_2.sql",
+            "etl/int_suspenso_bvl_pyg_3.sql",
+            "etl/int_suspenso_bvl_pyg_4.sql",
+            "etl/castigos_reestructurados_bvl.sql",
+            "etl/castigos_reestructurados_bvl_pyg.sql",
+            "etl/union_insumo_ajustes_ifrs.sql",
+            "etl/union_insumo_control_fuentes.sql",
+            "etl/100_Insert_resultados.sql",
+            "etl/999_limpieza.sql"
+        ],
+        "tablas": {
+            "SALDOS_DIARIOS": "resultados_fcr.fcr_sap_saldos_diarios_banco",
+            "LHISD": " resultados_fcr.fcr_bkv_detalle_trx_prestamos",
+            "MAESTRO_PRESTAMOS": "resultados_fcr.fcr_bkv_maestro_prestamos",
+            "CASTIGOS": "resultados_fcr.fcr_bkv_castigos_endeudamiento", 
+            "LHISH": "resultados_fcr.fcr_bkv_historico_trx_prestamos",
+            "RELACION_CLIE_PROD": "resultados_fcr.fcr_mdm_relacion_cliente_producto"
+        }
+    },
+	
+    "Preprocesador": {
+        "tareas": [
+            {
+                "nombre": "fn_leer_parametros",
+                "kwargs": []
+            },
+            {
+                "nombre": "fn_consultar_ingestiones",
+                "kwargs": []
+            },
+            {
+                "nombre": "fn_guardar_ingestiones",
+                "kwargs": []
+            }
+        ],
+        "ingestiones": {
+            "tabla_1": {
+                "id_tabla": 1,
+                "zona": "zona_tabla_1",
+                "campos": {
+                    "t1_c1": "year",
+                    "t1_c2": "ingestion_month",
+                    "t1_c3": "ingestion_day"
+                }
+            },
+            "tabla_2": {
+                "id_tabla": 2,
+                "zona": "zona_tabla_2",
+                "campos": {
+                    "t2_c1": "year",
+                    "t2_c2": "month",
+                    "t2_c3": "ingestion_day"
+                }
+            },
+            "tabla_3": {
+                "id_tabla": 3,
+                "zona": "zona_tabla_3",
+                "campos": {
+                    "t3_c1": "year",
+                    "t3_c2": "month"
+                }
+            }
+        }
+    }
+}
