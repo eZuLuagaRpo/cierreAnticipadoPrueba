@@ -106,6 +106,8 @@ class _VentanaCredenciales:
         self.entradas = {}
         self.items = {}
         self.resultado = None
+        self._cerrando = False  # evita que los efectos visuales toquen la ventana mientras se destruye
+        self._id_al_frente = None
         self._imagenes = []   # referencias a las imágenes para que Tk no las libere
         self._formas = []     # (imagen, x, y) que se pintan sobre la tarjeta
         self._elementos = []  # funciones (ox, oy) que crean los elementos del lienzo
@@ -130,10 +132,31 @@ class _VentanaCredenciales:
         # Traer la ventana al frente (se abre desde la consola del .bat)
         self.root.lift()
         self.root.attributes("-topmost", True)
-        self.root.after(400, lambda: self.root.attributes("-topmost", False))
+        self._id_al_frente = self.root.after(400, lambda: self.root.attributes("-topmost", False))
         self.entradas["nacional_usuario"].focus_force()
         self.root.mainloop()
+        self._destruir()
         return self.resultado
+
+    def _destruir(self) -> None:
+        """
+        Destruye la ventana fuera de los eventos de Tk (después de salir del mainloop) y libera
+        imágenes y variables mientras el intérprete sigue activo. Destruirla dentro de un clic
+        o liberar estos objetos tarde puede romper la memoria de Tcl en versiones antiguas de Tk.
+        """
+        self._cerrando = True
+        try:
+            if self._id_al_frente:
+                self.root.after_cancel(self._id_al_frente)
+            self.root.destroy()
+        except tk.TclError:
+            pass
+        self._elementos.clear()
+        self._formas.clear()
+        self.entradas.clear()
+        self.variables.clear()
+        self._imagenes.clear()
+        self.fuentes.clear()
 
     # ---------------------------------------------------------------
     # Construcción
@@ -172,10 +195,10 @@ class _VentanaCredenciales:
         for clave, nombre in self.secciones:
             y = self._seccion(x0, y, interno, clave, nombre) + px(12)
 
-        self._texto(x0, y, "", "error", ROJO, nombre="error")
+        self._texto(ancho_t // 2, y, "", "error", ROJO, ancla="n", nombre="error")
         y += self._linea("error") + px(12)
 
-        y = self._botones(x0 + interno, y) + px(22)
+        y = self._botones(x0, y, interno) + px(22)
 
         self._texto(ancho_t // 2, y, "Las credenciales solo se usan en esta ejecución y no se guardan.",
                     "pie", GRIS_TEXTO, ancla="n")
@@ -201,8 +224,6 @@ class _VentanaCredenciales:
         self.lienzo.create_image(0, 0, image=self._foto(base), anchor="nw")
         for crear in self._elementos:
             crear(ox, oy)
-
-        self.root.iconphoto(True, self._foto(_icono_candado(px(32))))
 
     def _imagen_base(self, ruta_fondo: Path, ancho_v: int, alto_v: int,
                      ox: int, oy: int, ancho_t: int, alto_t: int):
@@ -288,10 +309,14 @@ class _VentanaCredenciales:
                                  width=ancho - 2 * relleno - ancho_alternar)
 
             def al_enfocar(_e) -> None:
+                if self._cerrando:
+                    return
                 lienzo.itemconfigure(caja, image=con_foco)
                 entrada.configure(bg=BLANCO)
 
             def al_desenfocar(_e) -> None:
+                if self._cerrando:
+                    return
                 lienzo.itemconfigure(caja, image=normal)
                 entrada.configure(bg=GRIS_CAMPO)
 
@@ -319,15 +344,15 @@ class _VentanaCredenciales:
                           al_entrar=lambda: self.lienzo.itemconfigure(item, fill=NEGRO),
                           al_salir=lambda: self.lienzo.itemconfigure(item, fill=GRIS_TEXTO))
 
-    def _botones(self, x_derecha: int, y: int) -> int:
-        """Botón secundario y principal alineados a la derecha. Devuelve la y final."""
+    def _botones(self, x: int, y: int, ancho: int) -> int:
+        """Botón secundario y principal del mismo ancho, centrados en la tarjeta. Devuelve la y final."""
         px = self._px
-        relleno = px(28)
-        ancho_principal = self.fuentes["boton"].measure(self.texto_boton) + 2 * relleno
-        ancho_cancelar = self.fuentes["boton"].measure("Cancelar") + 2 * relleno
-        x_principal = x_derecha - ancho_principal
-        self._boton(x_principal - px(12) - ancho_cancelar, y, ancho_cancelar, "Cancelar", self._cancelar, False)
-        self._boton(x_principal, y, ancho_principal, self.texto_boton, self._aceptar, True)
+        separacion = px(14)
+        ancho_boton = max(self.fuentes["boton"].measure(t) for t in ("Cancelar", self.texto_boton)) + 2 * px(28)
+        x_inicio = x + (ancho - 2 * ancho_boton - separacion) // 2
+        self._boton(x_inicio, y, ancho_boton, "Cancelar", self._cancelar, principal=False)
+        self._boton(x_inicio + ancho_boton + separacion, y, ancho_boton, self.texto_boton, self._aceptar,
+                    principal=True)
         return y + px(self.ALTO_BOTON)
 
     def _boton(self, x: int, y: int, ancho: int, texto: str, comando: Callable[[], None], principal: bool) -> None:
@@ -358,21 +383,31 @@ class _VentanaCredenciales:
                      al_entrar: Callable[[], None], al_salir: Callable[[], None]) -> None:
         """Cursor de mano, efecto al pasar el mouse y acción al hacer clic sobre un elemento del lienzo."""
         def entrar(_e) -> None:
+            if self._cerrando:
+                return
             self.lienzo.configure(cursor="hand2")
             al_entrar()
 
         def salir(_e) -> None:
+            if self._cerrando:
+                return
             self.lienzo.configure(cursor="")
             al_salir()
 
+        def click(_e) -> None:
+            if not self._cerrando:
+                al_click()
+
         self.lienzo.tag_bind(item, "<Enter>", entrar)
         self.lienzo.tag_bind(item, "<Leave>", salir)
-        self.lienzo.tag_bind(item, "<ButtonRelease-1>", lambda _e: al_click())
+        self.lienzo.tag_bind(item, "<ButtonRelease-1>", click)
 
     # ---------------------------------------------------------------
     # Acciones
     # ---------------------------------------------------------------
     def _aceptar(self) -> None:
+        if self._cerrando:
+            return
         credenciales = []
         for clave, nombre in self.secciones:
             usuario = self.variables[f"{clave}_usuario"].get().strip()
@@ -383,12 +418,18 @@ class _VentanaCredenciales:
                 return
             credenciales.append(Credenciales(usuario, password))
 
-        self.resultado = (credenciales[0], credenciales[1] if len(credenciales) > 1 else None)
-        self.root.destroy()
+        self._terminar((credenciales[0], credenciales[1] if len(credenciales) > 1 else None))
 
     def _cancelar(self) -> None:
-        self.resultado = None
-        self.root.destroy()
+        self._terminar(None)
+
+    def _terminar(self, resultado) -> None:
+        """Guarda el resultado y sale del mainloop; la ventana se destruye después en mostrar()."""
+        if self._cerrando:
+            return
+        self.resultado = resultado
+        self._cerrando = True
+        self.root.quit()
 
 
 def _activar_alta_resolucion() -> None:
