@@ -1,9 +1,13 @@
 -----------------------------------------------------------------------------
 -- Fecha Creación: 20261012
+-- Última Fecha Modificación: 20261013
 -- Autores: Emanuel Zuluaga
 -- Descripción: Pasa los datos de la temporal a la tabla final aplicando los
 --              tipos. INSERT OVERWRITE con partición dinámica: solo se
 --              reemplaza la partición de hoy; los demás días no se tocan.
+--              Luego calcula las estadísticas de las particiones que aún no
+--              las tienen (la de hoy), que Impala usa para planear las
+--              consultas sobre la tabla.
 -------------------------------- Query Start --------------------------------
 INSERT OVERWRITE TABLE {zona_r}.{tabla_resultado}
 PARTITION (ingestion_year, ingestion_month, ingestion_day)
@@ -23,4 +27,7 @@ SELECT
     CAST(MONTH(CURRENT_DATE()) AS SMALLINT) AS ingestion_month,
     CAST(DAY(CURRENT_DATE()) AS SMALLINT) AS ingestion_day
 FROM {zona_p}.{tabla_temporal}
+;
+
+COMPUTE INCREMENTAL STATS {zona_r}.{tabla_resultado}
 ;

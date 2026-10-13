@@ -144,7 +144,7 @@ ejecutar.bat
     │           │   ├── nacional.columnas(cursor)                             → se compara con COLUMNAS_NACIONAL
     │           │   └── por cada lote de nacional.leer_por_lotes(cursor, filas_por_lote):
     │           │       └── lz.insertar_lote(con_lz, plantilla, lote)
-    │           ├── [4/5] lz.ejecutar(con_lz, leer_sentencias("lz/04_insertar_resultado.sql"))
+    │           ├── [4/5] lz.ejecutar(con_lz, leer_sentencias("lz/04_insertar_resultado.sql"))  → INSERT OVERWRITE + COMPUTE INCREMENTAL STATS
     │           ├── [5/5] lz.consultar_fila(con_lz, leer_sentencias("lz/05_validar_carga.sql")[0])
     │           └── (siempre) _borrar_temporal → lz.ejecutar(con_lz, leer_sentencias("lz/99_limpieza.sql"))
     ├── (siempre) cierre de con_nal y con_lz

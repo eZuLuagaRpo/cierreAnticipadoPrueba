@@ -186,7 +186,7 @@ Secuencia de `main.py`:
 | 1/5 | Crea la tabla final si no existe | `01_crear_tabla_resultado.sql` |
 | 2/5 | Borra y crea de nuevo la tabla temporal | `02_crear_tabla_temporal.sql` |
 | 3/5 | Cuenta las filas de origen (solo para mostrar avance), valida las columnas de la consulta, lee la Nacional por lotes e inserta cada lote en la temporal | `consulta_origen.sql`, `03_insertar_lote_temporal.sql` |
-| 4/5 | Pasa la temporal a la tabla final aplicando tipos; reemplaza solo la partición del día | `04_insertar_resultado.sql` |
+| 4/5 | Pasa la temporal a la tabla final aplicando tipos; reemplaza solo la partición del día. Luego calcula las estadísticas de la partición nueva (`COMPUTE INCREMENTAL STATS`) | `04_insertar_resultado.sql` |
 | 5/5 | Compara las filas de la partición del día con las extraídas y cuenta fechas nulas | `05_validar_carga.sql` |
 | Final | Borra la tabla temporal. Se ejecuta siempre, incluso si un paso anterior falla | `99_limpieza.sql` |
 
@@ -224,6 +224,12 @@ Particiones:
 | `ingestion_day` | `smallint` | `DAY(CURRENT_DATE())` |
 
 Las descripciones de columnas y particiones quedan registradas como `COMMENT` en la tabla.
+
+### Estadísticas
+
+Después de cada carga se ejecuta `COMPUTE INCREMENTAL STATS` sobre la tabla final. Impala usa las estadísticas (cantidad de filas, valores distintos y nulos por columna) para planear las consultas que leen la tabla, por ejemplo la ETL `compensa_provision` sobre `visionr_ceautoedt`. En modo incremental solo se calculan las particiones que aún no tienen estadísticas, normalmente la del día, sin recalcular la historia.
+
+Si la carga se ejecuta dos veces el mismo día, las estadísticas de la partición del día se conservan de la primera ejecución. Como la carga trae la tabla completa de origen en cada ejecución, la diferencia es mínima.
 
 ### Transformaciones
 
@@ -384,7 +390,7 @@ En los textos se escapan `\`, `'`, saltos de línea y retornos de carro.
 | `lz/01_crear_tabla_resultado.sql` | `CREATE TABLE IF NOT EXISTS` | `zona_r`, `tabla_resultado`, `tabla_origen` |
 | `lz/02_crear_tabla_temporal.sql` | `DROP TABLE IF EXISTS ... PURGE` y `CREATE TABLE` | `zona_p`, `tabla_temporal` |
 | `lz/03_insertar_lote_temporal.sql` | `INSERT INTO ... VALUES` | `zona_p`, `tabla_temporal`, `valores` |
-| `lz/04_insertar_resultado.sql` | `INSERT OVERWRITE ... PARTITION (...) SELECT` | `zona_r`, `tabla_resultado`, `zona_p`, `tabla_temporal` |
+| `lz/04_insertar_resultado.sql` | `INSERT OVERWRITE ... PARTITION (...) SELECT` y `COMPUTE INCREMENTAL STATS` | `zona_r`, `tabla_resultado`, `zona_p`, `tabla_temporal` |
 | `lz/05_validar_carga.sql` | `SELECT COUNT(*)` de la partición del día | `zona_r`, `tabla_resultado` |
 | `lz/99_limpieza.sql` | `DROP TABLE IF EXISTS ... PURGE` | `zona_p`, `tabla_temporal` |
 
