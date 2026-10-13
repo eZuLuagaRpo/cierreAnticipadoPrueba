@@ -1,0 +1,96 @@
+{
+    "global"               : {
+        "dsn" : "Impala-cdp-kudu",
+        "cdp_endpoint" : "https://bancolombia-rt-prd01-master10.bco-cdp.i5u2-f1yr.cloudera.site/bancolombia-rt-prd01/cdp-proxy-api/",
+        "username" : "srv_svccdp03",
+        "useSparky": false,
+        "parametros_lz"       : {
+			"nom_proyecto"                              :  "an0016001-gsfc-correlatividadmod",
+            "indice"                                    :  "formarc",
+            "zona_p"                                    :  "proceso_vspc_serv",
+            "zona_s_productos"                          :  "s_productos",
+            "zona_r"                                    :  "resultados_vspc_serv",
+            "zona_m"                                    :  "proceso",
+            "in_oozie"                                  :  "master_customer_data",
+			"nom_tablas":{
+				"logs"                                  :   "formarc_logs_correlatividadmod",
+				"ctrl"                                  :   ["formarc_ctrl_masterval_correlatividadmod","formarc_masterval_correlatividadmod"],
+				"params"                                :   ["formarc_params_correlatividadmod"]
+
+			}
+        } 
+    },
+    "Etl": {
+        "tareas": [
+            {
+                "nombre": "ultima_ingestion",
+                "kwargs": []
+            },
+            {
+                "nombre": "fn_ejecutar_etl",
+                "kwargs": []
+            }
+        ],
+        "archivos": [
+            "etl/00_demo_consulta.sql",
+            "etl/01_saldos_diarios_fcr.sql",
+            "etl/02_correlatividad_ini.sql",
+            "etl/03_correlatividad_fin.sql",
+            "etl/04_Insert_resultados.sql",
+            "etl/999_limpieza.sql"
+        ],
+        "tablas": {
+            "CPLEX" : "resultados_vspc_serv.ceplex_conciliacion_castigos",
+            "CASTIGOS" : "resultados_vspc_serv.consolidado_castigos_full",
+            "MAESTRO_CUENTAS" : "resultados_vspc_serv.maestro_cuentas_correlatividad",
+            "LEASING" : "resultados_leasing.informe_castigos_leasing",
+            "AJUSTES_IFRS" : "resultados_vspc_serv.consolidado_ajuste_ifrs",
+            "OTRAS_VENTAS" : "resultados_vspc_serv.ventas_otros_aplicativos"
+        }
+    },
+	
+    "Preprocesador": {
+        "tareas": [
+            {
+                "nombre": "fn_leer_parametros",
+                "kwargs": []
+            },
+            {
+                "nombre": "fn_consultar_ingestiones",
+                "kwargs": []
+            },
+            {
+                "nombre": "fn_guardar_ingestiones",
+                "kwargs": []
+            }
+        ],
+        "ingestiones": {
+            "tabla_1": {
+                "id_tabla": 1,
+                "zona": "zona_tabla_1",
+                "campos": {
+                    "t1_c1": "year",
+                    "t1_c2": "ingestion_month",
+                    "t1_c3": "ingestion_day"
+                }
+            },
+            "tabla_2": {
+                "id_tabla": 2,
+                "zona": "zona_tabla_2",
+                "campos": {
+                    "t2_c1": "year",
+                    "t2_c2": "month",
+                    "t2_c3": "ingestion_day"
+                }
+            },
+            "tabla_3": {
+                "id_tabla": 3,
+                "zona": "zona_tabla_3",
+                "campos": {
+                    "t3_c1": "year",
+                    "t3_c2": "month"
+                }
+            }
+        }
+    }
+}

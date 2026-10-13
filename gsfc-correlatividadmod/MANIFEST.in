@@ -1,0 +1,5 @@
+include src/an0016001_gsfc_correlatividadmod/static/*.json
+include src/an0016001_gsfc_correlatividadmod/static/sql/*.sql
+include src/an0016001_gsfc_correlatividadmod/static/sql/etl/*.*
+include versioneer.py
+include src/an0016001_gsfc_correlatividadmod/_version.py

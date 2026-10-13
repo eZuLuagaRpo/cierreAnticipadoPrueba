@@ -1,76 +1,129 @@
-create table if not exists {zona_r}.consolidado_ajuste_ifr
-(
-proceso string,
-tipo_cartera string,
-tipo_prod string,
-moneda string,
-clasificacion string,
-valor_ajuste decimal(15,2),
-valor_ajuste_me decimal(15,2),
-cal_cartera string,
-sucursal string,
-ref1 string,
-ref2 string,
-ref3 string,
-clase_doc string,
-cuenta_partida string,
-cuenta_contrapartida string,
-fecha_proceso string,
-fecha_hora_generacion string,
-aaaamm_ajuste string,
-fecha_ajuste string,
-etl_generadora string
+Ahora vamos a trabajar en una ETL que necesito que me ayudes a desarrollar en una carpeta aparte que vas a llamar "compensa_provision". Esta ETL va a estar en esta carpeta independiente como si la etuvieramos creando desde 0. Para estas contstrucciones de ETL nos piden usar la estructura del orquestador2.0. Tiene que ser construida con esa misma estructura de carpetas y código.
+
+Como tu no lo conoces bien. te acabo de adjuntar una ETL que se construyo en ese diseño y vas a replicarlo. Yo te voy a pasar la query del proceso que se hace y tu vas a organizar todo en la carpeta compensa_provision. y de donde te vas a guiar para construir todo es del proyecto que te pegue en la raíz que esta actualizado con orquestador2: "gsfc-correlatividadmod".
+
+Cabe aclarar que mira el como usa el tema de logs: hay 3 de estabilidad y 3 de compilación. También lo vamos a trabajar asi
+
+Revisa esa ETL ejemplo, contextualizate, copia la estructura y usémosla para construir la nuestra.
+
+El usuario funcional me paso la siguiente query con la que el construyo la definición. Query que el me dice que la use para construir la etl porque esa realizo toda la construcción correctamente:
+
+
+DROP TABLE IF EXISTS proceso_vspc_finanzas.tmp_ceautoedt_base PURGE
+;
+
+CREATE TABLE proceso_vspc_finanzas.tmp_ceautoedt_base STORED AS PARQUET AS
+SELECT
+  CAST(concepto_contable AS STRING) AS concepto_contable,
+  CAST(codigo_contable AS STRING) AS codigo_contable,
+  CAST(SUM(monto_trx) AS DECIMAL(38, 2)) AS monto_trx
+FROM
+  proceso_vspc_finanzas.visionr_ceautoedt
+WHERE
+  ingestion_year = YEAR(NOW())
+  AND ingestion_month = MONTH(NOW())
+GROUP BY
+  CAST(concepto_contable AS STRING),
+  CAST(codigo_contable AS STRING)
+;
+
+COMPUTE INCREMENTAL STATS proceso_vspc_finanzas.tmp_ceautoedt_base
+;
+
+DROP TABLE IF EXISTS proceso_vspc_finanzas.tmp_allinf_contable PURGE
+;
+
+CREATE TABLE proceso_vspc_finanzas.tmp_allinf_contable STORED AS PARQUET AS WITH ultima_version AS (
+  SELECT
+    YEAR,
+    ingestion_month,
+    ingestion_day
+  FROM
+    s_apoyo_financiero.ccsap_visionr_allinf
+  WHERE
+    YEAR IN (YEAR(NOW()), YEAR(NOW()) - 1)
+  GROUP BY
+    YEAR,
+    ingestion_month,
+    ingestion_day
+  ORDER BY
+    YEAR DESC,
+    ingestion_month DESC,
+    ingestion_day DESC
+  LIMIT
+    1
 )
-partitioned by (year smallint, month smallint, day smallint)
-stored as parquet tblproperties('transactional'='false')
+SELECT
+  CAST(a.hatpgl AS STRING) AS codigo_contable,
+  CAST(a.hatprc AS STRING) AS concepto_contable,
+  CAST(a.hanoda AS STRING) AS bvl_cta_deb,
+  CAST(a.hanoca AS STRING) AS bvl_cta_cre
+FROM
+  s_apoyo_financiero.ccsap_visionr_allinf a
+  INNER JOIN ultima_version uv ON a.year = uv.year
+  AND a.ingestion_month = uv.ingestion_month
+  AND a.ingestion_day = uv.ingestion_day
+WHERE
+  a.year IN (YEAR(NOW()), YEAR(NOW()) - 1)
+;
+
+COMPUTE INCREMENTAL STATS proceso_vspc_finanzas.tmp_allinf_contable
+;
+
+DROP TABLE IF EXISTS proceso_vspc_finanzas.tmp_peq_bvl_sap PURGE
+;
+
+CREATE TABLE proceso_vspc_finanzas.tmp_peq_bvl_sap STORED AS PARQUET AS
+SELECT
+  CAST(valor_dato_origen AS STRING) AS valor_dato_origen,
+  CAST(valor_dato_destino AS STRING) AS valor_dato_destino
+FROM
+  s_productos.peqc_pequiv_vw_cache_peq
+WHERE
+  YEAR = YEAR(NOW())
+  AND ingestion_month = MONTH(NOW())
+  AND ingestion_day = 1
+  AND codigo_aplicacion_origen = 'BVG'
+  AND codigo_aplicacion_destino = 'SAP-FI'
+GROUP BY
+  CAST(valor_dato_origen AS STRING),
+  CAST(valor_dato_destino AS STRING)
+;
+
+COMPUTE INCREMENTAL STATS proceso_vspc_finanzas.tmp_peq_bvl_sap
+;
+
+DROP TABLE IF EXISTS proceso_vspc_finanzas.tmp_consolidado_homologacion_sap PURGE
+;
+
+CREATE TABLE proceso_vspc_finanzas.tmp_consolidado_homologacion_sap STORED AS PARQUET AS
+SELECT
+  CAST(base.concepto_contable AS STRING) AS concepto_contable,
+  CAST(base.codigo_contable AS STRING) AS codigo_contable,
+  CAST(base.monto_trx AS DECIMAL(38, 2)) AS monto_trx,
+  CAST(allinf.bvl_cta_deb AS STRING) AS bvl_cta_deb,
+  CAST(peq_deb.valor_dato_destino AS STRING) AS sap_cta_deb,
+  CAST(allinf.bvl_cta_cre AS STRING) AS bvl_cta_cre,
+  CAST(peq_cre.valor_dato_destino AS STRING) AS sap_cta_cre,
+  DAY(CURRENT_DATE()) AS DAY,
+  MONTH(CURRENT_DATE()) AS MONTH,
+  YEAR(CURRENT_DATE()) AS YEAR
+FROM
+  proceso_vspc_finanzas.tmp_ceautoedt_base base
+  LEFT JOIN proceso_vspc_finanzas.tmp_allinf_contable allinf ON base.codigo_contable = allinf.codigo_contable
+  AND base.concepto_contable = allinf.concepto_contable
+  LEFT JOIN proceso_vspc_finanzas.tmp_peq_bvl_sap peq_deb ON allinf.bvl_cta_deb = peq_deb.valor_dato_origen
+  LEFT JOIN proceso_vspc_finanzas.tmp_peq_bvl_sap peq_cre ON allinf.bvl_cta_cre = peq_cre.valor_dato_origen
+;
+
+COMPUTE INCREMENTAL STATS proceso_vspc_finanzas.tmp_consolidado_homologacion_sap
 ;
 
 
-QUERY PARA OBTENER INFORMACION DE LA NACIONAL QUE SE VA A LLEVAR A LA LZ
-
-SELECT
-    CEAP65 as cod_aplicacion,
-    CECO65 as concepto_contable,
-    CECD65 as codigo_contable,
-    CEFT65 as fecha_efectiva,
-    CEMT65 as monto_trx,
-    CESU65 as oficina_contable,
-    CENS65 as oficina_origen,
-    CEFC65 as cod_moneda,
-    CETC65 as tasa_cambio,
-    CEME65 as monto_equivalente
-FROM VISIONR.CEAUTOE
-
--------------------
 
 
-CREACION TABLA:
+Obviamente cuando construyamos nuestra ETL hay cosas en la ETL de ejemplo que no son necesarias para la nuestra porque son ETLs distintas. 
 
-Se debe crear la tabla en LZ nube en zona de resultados: resultados_vspc_serv 
-y debe tener el siguiente nombre: visionr_ceautoe
-Las columnas son las que están en la query para la nacional y se van a usar los alias:
+También, en la raíz del proyecto también adjunte un Excel que contiene todas las definiciones de las tablas, fultros que se usan, entre otros. Este es mas bien una documentación de lo que se usa.
 
-    cod_aplicacion (Texto) -> Código de la aplicación origen que genera o registra la transacción contable.
-    concepto_contable (Texto) -> Concepto contable asociado al movimiento o transacción registrada.
-    codigo_contable (Texto) -> Código de la cuenta contable utilizada para el registro de la operación.
-    fecha_efectiva (Fecha) -> Fecha efectiva en la que se reconoce o contabiliza la transacción.
-    monto_trx (Numerico) -> Valor monetario de la transacción registrada en la moneda de origen.
-    oficina_contable (Texto) -> Código de la oficina o unidad contable responsable del registro contable.
-    oficina_origen (Texto) -> Código de la oficina donde se originó la transacción.
-    cod_moneda (Texto) -> Código de la moneda en la que se realizó la transacción.
-    tasa_cambio (Decimal) -> Tasa de cambio aplicada para convertir el valor de la transacción a moneda equivalente.
-    monto_equivalente (Numerico) -> Valor equivalente de la transacción después de la conversión de moneda.
-
-
-Y va a tener 3 campos adicionales de partición para que lo sepas y son:
-
-	ingestion_year -> Regla: YEAR(CURRENT_DATE) -> Año de ingestión de la información. Se utiliza como partición para optimizar el almacenamiento y consulta de los datos.
-
-	ingestion_month -> Regla: MONTH(CURRENT_DATE) -> Mes de ingestión de la información. Hace parte de la estrategia de particionamiento de la tabla.
-
-	ingestion_day -> Regla: DAY(CURRENT_DATE) -> Día de ingestión de la información. Permite identificar la fecha específica en la que los datos fueron cargados la LZ.
-
-
-
-
-
+Contextualizate bien de todo, la ETL ejemplo, como funciona, la estructura y todo. Y dime si queda claro? Ya con este query listo seria mas que todo organizarlo en la ETL
