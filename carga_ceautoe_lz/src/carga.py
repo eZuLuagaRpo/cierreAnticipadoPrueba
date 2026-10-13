@@ -20,7 +20,7 @@ from configuracion import leer_plantilla_lote, leer_sentencias
 
 log = logging.getLogger(NOMBRE_LOG)
 
-SQL_CONSULTA_NACIONAL = "nacional/consulta_ceautoe.sql"
+SQL_CONSULTA_NACIONAL = "nacional/consulta_ceautoedt.sql"
 SQL_CREAR_TABLA_RESULTADO = "lz/01_crear_tabla_resultado.sql"
 SQL_CREAR_TABLA_TEMPORAL = "lz/02_crear_tabla_temporal.sql"
 SQL_INSERTAR_LOTE_TEMPORAL = "lz/03_insertar_lote_temporal.sql"

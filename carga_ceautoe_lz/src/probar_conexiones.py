@@ -1,7 +1,7 @@
 # probar_conexiones.py
 """
 Prueba solo las conexiones, sin crear ni insertar nada:
-- Nacional: conecta y cuenta las filas de la consulta de VISIONR.CEAUTOE.
+- Nacional: conecta y cuenta las filas de la consulta de VISIONR.CEAUTOEDT.
 - LZ: conecta, muestra con qué usuario quedó conectado y si la zona destino
   es accesible (y si la tabla destino ya existe).
 """
@@ -61,9 +61,9 @@ def _probar_nacional(config: dict, cred: interfaz.Credenciales) -> tuple[bool, s
         consulta = configuracion.leer_sentencias(SQL_CONSULTA_NACIONAL, config["parametros_lz"])[0]
         total = nacional.contar_filas(con, consulta)
         if total is None:
-            return False, (f"✖ Nacional (DSN {dsn}): conectó, pero no pudo leer VISIONR.CEAUTOE "
+            return False, (f"✖ Nacional (DSN {dsn}): conectó, pero no pudo leer VISIONR.CEAUTOEDT "
                            "(revisa permisos sobre la tabla; el detalle está en el log).")
-        return True, f"✔ Nacional (DSN {dsn}): conexión exitosa.\n    VISIONR.CEAUTOE: {miles(total)} filas."
+        return True, f"✔ Nacional (DSN {dsn}): conexión exitosa.\n    VISIONR.CEAUTOEDT: {miles(total)} filas."
     except Exception as e:
         log.exception("✖ Falló la prueba de la Nacional")
         return False, f"✖ Nacional (DSN {dsn}): {e}"

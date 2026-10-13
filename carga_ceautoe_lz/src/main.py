@@ -1,7 +1,7 @@
 # main.py
 """
 Proceso principal: pide credenciales, conecta a la Nacional y a la LZ y ejecuta la carga
-de VISIONR.CEAUTOE hacia {zona_r}.visionr_ceautoe.
+de VISIONR.CEAUTOEDT hacia {zona_r}.visionr_ceautoe.
 """
 import logging
 import sys
@@ -31,7 +31,7 @@ def main() -> int:
 
         # 1) Ventana de credenciales
         info = [
-            ("Origen", f"VISIONR.CEAUTOE  (DSN {config['nacional']['dsn']})"),
+            ("Origen", f"VISIONR.CEAUTOEDT  (DSN {config['nacional']['dsn']})"),
             ("Destino", destino),
             ("Partición", f"{date.today():%d/%m/%Y}  ·  se reemplaza si ya existe"),
         ]

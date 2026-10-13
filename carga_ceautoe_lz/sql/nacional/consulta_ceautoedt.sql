@@ -16,4 +16,4 @@ SELECT
     CEFC65 as cod_moneda,
     CETC65 as tasa_cambio,
     CEME65 as monto_equivalente
-FROM VISIONR.CEAUTOE
+FROM VISIONR.CEAUTOEDT

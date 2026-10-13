@@ -1,6 +1,6 @@
-# Carga VISIONR.CEAUTOE → LZ Nube
+# Carga VISIONR.CEAUTOEDT → LZ Nube
 
-Proceso de escritorio que extrae la tabla `VISIONR.CEAUTOE` de la Nacional (AS/400) y la carga en la LZ Nube (Impala CDP) en la tabla `{zona_r}.visionr_ceautoe`, particionada por fecha de ingestión.
+Proceso de escritorio que extrae la tabla `VISIONR.CEAUTOEDT` de la Nacional (AS/400) y la carga en la LZ Nube (Impala CDP) en la tabla `{zona_r}.visionr_ceautoe`, particionada por fecha de ingestión.
 
 El proceso solicita las credenciales de la Nacional en una ventana, carga la información completa en una tabla temporal por lotes, la pasa a la tabla final reemplazando únicamente la partición del día y valida el resultado.
 
@@ -32,7 +32,7 @@ El proceso solicita las credenciales de la Nacional en una ventana, carga la inf
 | Python | 3.9 o superior, 64 bits |
 | DSN Nacional | DSN ODBC `NACIONALET01` configurado (IBM i Access) |
 | DSN LZ | DSN ODBC `Impala-cdp-kudu` configurado (Cloudera ODBC Driver for Impala) con usuario y contraseña guardados |
-| Usuario Nacional | Permiso de lectura sobre `VISIONR.CEAUTOE` |
+| Usuario Nacional | Permiso de lectura sobre `VISIONR.CEAUTOEDT` |
 | Usuario LZ | El usuario guardado en el DSN debe poder crear tablas e insertar en `zona_r` y `zona_p` |
 | Librerías | `pyodbc==5.3.0`, `Pillow==11.3.0` (se instalan automáticamente desde `requirements.txt`) |
 
@@ -56,7 +56,7 @@ carga_ceautoe_lz/
 ├── logs/                        Logs de cada ejecución (se crea automáticamente)
 ├── sql/
 │   ├── nacional/
-│   │   └── consulta_ceautoe.sql       Consulta de extracción en la Nacional
+│   │   └── consulta_ceautoedt.sql       Consulta de extracción en la Nacional
 │   └── lz/
 │       ├── 01_crear_tabla_resultado.sql
 │       ├── 02_crear_tabla_temporal.sql
@@ -99,7 +99,7 @@ Ejecutar `probar_conexiones.bat`. Abre la misma ventana y, con el botón **Proba
 
 | Conexión | Prueba | Resultado informado |
 |---|---|---|
-| Nacional | Conexión y `COUNT(*)` de la consulta de `VISIONR.CEAUTOE` | Si conecta y si el usuario puede leer la tabla (cantidad de filas) |
+| Nacional | Conexión y `COUNT(*)` de la consulta de `VISIONR.CEAUTOEDT` | Si conecta y si el usuario puede leer la tabla (cantidad de filas) |
 | LZ | Conexión, `SELECT user()` y `SHOW TABLES IN {zona_r} LIKE '{tabla_resultado}'` | Usuario con el que conecta el DSN, si la zona es accesible y si la tabla destino ya existe |
 
 Ambas conexiones se prueban aunque una falle. La prueba no valida permisos de creación de tablas; eso solo se comprueba en una carga real.
@@ -147,7 +147,7 @@ El ambiente se define únicamente con `zona_r`:
 ```
 ┌─────────────────────────┐   lotes de filas_por_lote   ┌──────────────────────────────┐
 │ Nacional (AS/400)       │ ──────────────────────────► │ {zona_p}.{tabla_temporal}    │
-│ VISIONR.CEAUTOE         │   INSERT INTO ... VALUES    │ todas las columnas STRING    │
+│ VISIONR.CEAUTOEDT         │   INSERT INTO ... VALUES    │ todas las columnas STRING    │
 └─────────────────────────┘                             └──────────────┬───────────────┘
                                                                        │ INSERT OVERWRITE
                                                                        │ partición del día
@@ -169,7 +169,7 @@ Secuencia de `main.py`:
 |---|---|---|
 | 1/5 | Crea la tabla final si no existe | `01_crear_tabla_resultado.sql` |
 | 2/5 | Borra y crea de nuevo la tabla temporal | `02_crear_tabla_temporal.sql` |
-| 3/5 | Cuenta las filas de origen (solo para mostrar avance), valida las columnas de la consulta, lee la Nacional por lotes e inserta cada lote en la temporal | `consulta_ceautoe.sql`, `03_insertar_lote_temporal.sql` |
+| 3/5 | Cuenta las filas de origen (solo para mostrar avance), valida las columnas de la consulta, lee la Nacional por lotes e inserta cada lote en la temporal | `consulta_ceautoedt.sql`, `03_insertar_lote_temporal.sql` |
 | 4/5 | Pasa la temporal a la tabla final aplicando tipos; reemplaza solo la partición del día | `04_insertar_resultado.sql` |
 | 5/5 | Compara las filas de la partición del día con las extraídas y cuenta fechas nulas | `05_validar_carga.sql` |
 | Final | Borra la tabla temporal. Se ejecuta siempre, incluso si un paso anterior falla | `99_limpieza.sql` |
@@ -226,7 +226,7 @@ La fecha de las particiones se calcula con `CURRENT_DATE()` del servidor de Impa
 
 Razones para usar una tabla intermedia:
 
-- **Archivos pequeños:** cada `INSERT` en Impala genera al menos un archivo parquet. Insertar los lotes directamente en la tabla final dejaría cientos de archivos por partición diaria. Con la temporal, la tabla final recibe un único `INSERT`.
+- **Archivos pequeños:** cada `INSERT` en Impala genera al menos un archivo parquet. Insertar los lotes directamente en la tabla final dejaría cientos de archivos por partición diaria. Con la temporal, la tabla final recibe un único `INSERT`. Impala reparte ese `INSERT` entre las máquinas del clúster y cada una escribe su propio archivo en la partición, por lo que la cantidad de archivos por día depende del clúster (en las pruebas quedaron 49 archivos para 8 MB).
 - **Carga todo o nada:** si el proceso falla durante la extracción o los lotes, la tabla final no se modifica.
 - **Tipos en SQL:** los datos se envían como texto y las conversiones de tipo se hacen en `04_insertar_resultado.sql`, donde son visibles y modificables.
 
@@ -360,7 +360,7 @@ En los textos se escapan `\`, `'`, saltos de línea y retornos de carro.
 
 | Archivo | Sentencias | Parámetros |
 |---|---|---|
-| `nacional/consulta_ceautoe.sql` | `SELECT` sobre `VISIONR.CEAUTOE` | — |
+| `nacional/consulta_ceautoedt.sql` | `SELECT` sobre `VISIONR.CEAUTOEDT` | — |
 | `lz/01_crear_tabla_resultado.sql` | `CREATE TABLE IF NOT EXISTS` | `zona_r`, `tabla_resultado` |
 | `lz/02_crear_tabla_temporal.sql` | `DROP TABLE IF EXISTS ... PURGE` y `CREATE TABLE` | `zona_p`, `tabla_temporal` |
 | `lz/03_insertar_lote_temporal.sql` | `INSERT INTO ... VALUES` | `zona_p`, `tabla_temporal`, `valores` |
@@ -375,7 +375,7 @@ Reglas de escritura:
 - Las sentencias se separan por `;`. No se debe usar `;` dentro de textos o comentarios de las sentencias.
 - Los parámetros se escriben entre llaves (`{zona_r}`). Si un archivo usa un parámetro que no existe en `parametros_lz`, el proceso falla indicando el archivo y el parámetro.
 - `03_insertar_lote_temporal.sql` debe contener una sola sentencia; el marcador `{valores}` se reemplaza con las filas de cada lote.
-- El orden y los alias de las columnas de `consulta_ceautoe.sql` deben coincidir con `COLUMNAS_NACIONAL` en `carga.py`.
+- El orden y los alias de las columnas de `consulta_ceautoedt.sql` deben coincidir con `COLUMNAS_NACIONAL` en `carga.py`.
 
 ---
 
@@ -430,7 +430,7 @@ Las contraseñas no se registran en el log.
 
 ## Rendimiento
 
-Con aproximadamente 609.571 filas y `filas_por_lote = 2000`, la carga a la temporal requiere unos 305 `INSERT`. El tiempo total estimado está entre 5 y 15 minutos, dependiendo de la carga del clúster.
+La cantidad de `INSERT` a la temporal es el total de filas de origen dividido entre `filas_por_lote`. Como referencia, con 609.571 filas y `filas_por_lote = 2000` se requieren unos 305 `INSERT`. El tiempo total estimado está entre 5 y 15 minutos, dependiendo de la carga del clúster.
 
 `filas_por_lote` permite ajustar el balance:
 
@@ -449,7 +449,7 @@ El consumo de memoria del PC depende del tamaño del lote, no del total de filas
 | `No fue posible conectar a la LZ` | DSN inexistente o contraseña guardada en el DSN vencida | Verificar el DSN `Impala-cdp-kudu` en el administrador ODBC y actualizar la contraseña. Alternativamente, usar `pedir_credenciales: true` |
 | `Data source name not found` | Nombre del DSN distinto al del config, o DSN creado en el administrador ODBC de otro bitness | Ajustar el nombre en `config.json` o crear el DSN en el administrador ODBC de 64 bits |
 | `AuthorizationException` al crear o insertar | El usuario del DSN no tiene permisos en la zona | Solicitar permisos sobre `zona_r` / `zona_p` |
-| `Las columnas de la consulta de la Nacional no coinciden` | Se modificó `consulta_ceautoe.sql` | Alinear la consulta, `COLUMNAS_NACIONAL` y los SQL de la LZ (ver [Mantenimiento](#mantenimiento)) |
+| `Las columnas de la consulta de la Nacional no coinciden` | Se modificó `consulta_ceautoedt.sql` | Alinear la consulta, `COLUMNAS_NACIONAL` y los SQL de la LZ (ver [Mantenimiento](#mantenimiento)) |
 | `El conteo no coincide` | Ejecuciones simultáneas sobre la misma tabla o cambio de fecha en el servidor durante la ejecución | Volver a ejecutar; el `INSERT OVERWRITE` reemplaza la partición del día |
 | Advertencia de `fecha_efectiva` vacía o inválida | Valores en `CEFT65` que no son fechas `AAAAMMDD` válidas (ej. `0`) | Revisar los registros en origen; el resto de la carga es válida |
 | La ventana no abre y pide datos por consola | Tkinter o Pillow no disponibles en el Python del equipo | Ingresar las credenciales por consola, ejecutar desde el `.bat` (instala Pillow) o reinstalar Python con Tkinter |
@@ -462,7 +462,7 @@ El consumo de memoria del PC depende del tamaño del lote, no del total de filas
 
 ### Agregar una columna
 
-1. Agregar el campo con su alias en `sql/nacional/consulta_ceautoe.sql`.
+1. Agregar el campo con su alias en `sql/nacional/consulta_ceautoedt.sql`.
 2. Agregar el alias en `COLUMNAS_NACIONAL` (`src/carga.py`), en la misma posición.
 3. Agregar la columna como `string` en `02_crear_tabla_temporal.sql` y en la lista de columnas de `03_insertar_lote_temporal.sql`, en la misma posición.
 4. Agregar la columna con su tipo y `comment` en `01_crear_tabla_resultado.sql`, antes de las particiones.

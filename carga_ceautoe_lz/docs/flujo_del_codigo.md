@@ -134,7 +134,7 @@ ejecutar.bat
     │   ├── [1/5] lz.ejecutar(con_lz, leer_sentencias("lz/01_crear_tabla_resultado.sql"))
     │   ├── [2/5] lz.ejecutar(con_lz, leer_sentencias("lz/02_crear_tabla_temporal.sql"))
     │   ├── [3/5] _cargar_temporal(con_nal, con_lz, params, filas_por_lote)
-    │   │   ├── leer_sentencias("nacional/consulta_ceautoe.sql")[0]   → texto de la consulta
+    │   │   ├── leer_sentencias("nacional/consulta_ceautoedt.sql")[0]   → texto de la consulta
     │   │   ├── leer_plantilla_lote("lz/03_insertar_lote_temporal.sql") → INSERT con {valores}
     │   │   ├── nacional.contar_filas(con_nal, consulta)              → total (para el avance)
     │   │   ├── nacional.abrir_consulta(con_nal, consulta)            → cursor
@@ -164,7 +164,7 @@ ejecutar.bat
 |---|---|---|---|
 | 1 | `lz.ejecutar(...)` | LZ | `lz/01_crear_tabla_resultado.sql` |
 | 2 | `lz.ejecutar(...)` | LZ | `lz/02_crear_tabla_temporal.sql` |
-| 3 | `_cargar_temporal(...)` | Nacional y LZ | `nacional/consulta_ceautoe.sql`, `lz/03_insertar_lote_temporal.sql` |
+| 3 | `_cargar_temporal(...)` | Nacional y LZ | `nacional/consulta_ceautoedt.sql`, `lz/03_insertar_lote_temporal.sql` |
 | 4 | `lz.ejecutar(...)` | LZ | `lz/04_insertar_resultado.sql` |
 | 5 | `lz.consultar_fila(...)` | LZ | `lz/05_validar_carga.sql` |
 | Limpieza | `_borrar_temporal(...)` | LZ | `lz/99_limpieza.sql` |
@@ -186,7 +186,7 @@ Toda la lectura de SQL pasa por `configuracion.py`. Ningún otro módulo abre ar
 Las rutas de los archivos están como constantes al inicio de `carga.py`, relativas a la carpeta `sql/`:
 
 ```python
-SQL_CONSULTA_NACIONAL = "nacional/consulta_ceautoe.sql"
+SQL_CONSULTA_NACIONAL = "nacional/consulta_ceautoedt.sql"
 SQL_CREAR_TABLA_RESULTADO = "lz/01_crear_tabla_resultado.sql"
 SQL_CREAR_TABLA_TEMPORAL = "lz/02_crear_tabla_temporal.sql"
 SQL_INSERTAR_LOTE_TEMPORAL = "lz/03_insertar_lote_temporal.sql"
@@ -257,7 +257,7 @@ y se pasa a cada llamada de `leer_sentencias` o `leer_plantilla_lote`. Un `{nomb
 
 ### Consulta de la Nacional
 
-`consulta_ceautoe.sql` se lee con la misma función. No contiene parámetros, por lo que el texto queda igual (sin los comentarios) y se toma el primer y único elemento de la lista:
+`consulta_ceautoedt.sql` se lee con la misma función. No contiene parámetros, por lo que el texto queda igual (sin los comentarios) y se toma el primer y único elemento de la lista:
 
 ```python
 consulta = leer_sentencias(SQL_CONSULTA_NACIONAL, params)[0]
@@ -433,7 +433,7 @@ probar_conexiones.bat
     ├── interfaz.solicitar_credenciales(..., texto_boton="Probar conexiones")
     ├── _probar_nacional(config, cred_nal)
     │   ├── nacional.conectar(dsn, usuario, password)
-    │   ├── configuracion.leer_sentencias("nacional/consulta_ceautoe.sql")[0]
+    │   ├── configuracion.leer_sentencias("nacional/consulta_ceautoedt.sql")[0]
     │   └── nacional.contar_filas(con, consulta)       → SELECT COUNT(*) FROM (<consulta>) AS origen
     ├── _probar_lz(config, cred_lz)
     │   ├── lz.conectar(dsn, usuario?, password?)
