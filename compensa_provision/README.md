@@ -12,13 +12,14 @@ La rutina se ejecuta una vez al mes y se construye sobre la estructura de `orque
 
 # Estado actual
 
-La rutina finaliza en la tabla temporal `{zona_p}.temp_consolidado_homologacion_sap`. Están pendientes:
+La rutina finaliza en la tabla temporal `{zona_p}.temp_consolidado_homologacion_sap`. Están pendientes la tabla final en zona de resultados, el nombre definitivo del paquete (código AN) y los logs de calendarización. El detalle de cada pendiente y los archivos a ajustar están en [doc/estado_y_pendientes.md](doc/estado_y_pendientes.md).
 
-| Pendiente | Impacto en el código |
+# Documentación
+
+| Documento | Contenido |
 |---|---|
-| Tabla final en zona de resultados | Agregar `00_crear_tablas_resultado.sql` (creación) y `05_insert_resultados.sql` (inserción y estadísticas), registrarlos en `archivos` de `static/config.json`, agregar `zona_r` a `parametros_lz` y agregar el borrado de `temp_consolidado_homologacion_sap` en `999_limpieza.sql` |
-| Nombre definitivo del paquete (código AN) | Renombrar `src/compensa_provision` y actualizar el nombre en `setup.py`, `setup.cfg`, `MANIFEST.in`, `_version.py` (`versionfile_source`), `ejecucion.py` (`nom_proyecto`) y `static/config.json` (`nom_proyecto`) |
-| Logs de calendarización | Ejecutar la rutina y ubicar 3 logs de compilación (`cmp_`) y 3 de estabilidad (`est_`) en `logs_calendarizacion/` |
+| [doc/estado_y_pendientes.md](doc/estado_y_pendientes.md) | Estado del desarrollo, decisiones tomadas y pendientes con los archivos donde se ajustan |
+| [doc/flujo_orquestador2.md](doc/flujo_orquestador2.md) | Funcionamiento de orquestador2 y flujo del código: orden de ejecución, configuración, parámetros, conexión, logs y reintentos |
 
 # Fuentes
 
