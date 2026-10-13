@@ -1,8 +1,8 @@
-# Carga VISIONR.CEAUTOEDT → LZ Nube
+# Carga VISIONR.CEAUTOE y VISIONR.CEAUTOEDT → LZ Nube
 
-Proceso de escritorio que extrae la tabla `VISIONR.CEAUTOEDT` de la Nacional (AS/400) y la carga en la LZ Nube (Impala CDP) en la tabla `{zona_r}.visionr_ceautoe`, particionada por fecha de ingestión.
+Proceso de escritorio que extrae las tablas `VISIONR.CEAUTOE` y `VISIONR.CEAUTOEDT` de la Nacional (AS/400) y las carga en la LZ Nube (Impala CDP) en las tablas `{zona_r}.visionr_ceautoe` y `{zona_r}.visionr_ceautoedt`, particionadas por fecha de ingestión. Las dos tablas tienen la misma estructura y se extraen con la misma consulta.
 
-El proceso solicita las credenciales de la Nacional en una ventana, carga la información completa en una tabla temporal por lotes, la pasa a la tabla final reemplazando únicamente la partición del día y valida el resultado.
+El proceso solicita las credenciales de la Nacional en una ventana y, para cada tabla, carga la información completa en una tabla temporal por lotes, la pasa a la tabla final reemplazando únicamente la partición del día y valida el resultado. Las tablas a cargar se definen en la lista `cargas` de `config.json`.
 
 ## Contenido
 
@@ -32,7 +32,7 @@ El proceso solicita las credenciales de la Nacional en una ventana, carga la inf
 | Python | 3.9 o superior, 64 bits |
 | DSN Nacional | DSN ODBC `NACIONALET01` configurado (IBM i Access) |
 | DSN LZ | DSN ODBC `Impala-cdp-kudu` configurado (Cloudera ODBC Driver for Impala) con usuario y contraseña guardados |
-| Usuario Nacional | Permiso de lectura sobre `VISIONR.CEAUTOEDT` |
+| Usuario Nacional | Permiso de lectura sobre `VISIONR.CEAUTOE` y `VISIONR.CEAUTOEDT` |
 | Usuario LZ | El usuario guardado en el DSN debe poder crear tablas e insertar en `zona_r` y `zona_p` |
 | Librerías | `pyodbc==5.3.0`, `Pillow==11.3.0` (se instalan automáticamente desde `requirements.txt`) |
 
@@ -48,15 +48,16 @@ carga_ceautoe_lz/
 ├── probar_conexiones.bat        Prueba las conexiones sin escribir datos
 ├── requirements.txt             Dependencias de Python
 ├── config/
-│   └── config.json              DSNs, zonas, nombres de tablas y tamaño de lote
+│   └── config.json              DSNs, zonas, tablas a cargar y tamaño de lote
 ├── docs/
-│   └── documentacion.md         Este documento
+│   ├── documentacion.md         Este documento
+│   └── flujo_del_codigo.md      Recorrido del código: llamadas, lectura de SQL y datos
 ├── img/
 │   └── background.png           Fondo de la ventana de credenciales
 ├── logs/                        Logs de cada ejecución (se crea automáticamente)
 ├── sql/
 │   ├── nacional/
-│   │   └── consulta_ceautoedt.sql       Consulta de extracción en la Nacional
+│   │   └── consulta_origen.sql          Consulta de extracción en la Nacional (una por tabla de origen)
 │   └── lz/
 │       ├── 01_crear_tabla_resultado.sql
 │       ├── 02_crear_tabla_temporal.sql
@@ -89,9 +90,9 @@ Ejecutar `ejecutar.bat` (doble clic). El archivo:
 4. Ejecuta `src/main.py`.
 5. Deja la consola abierta al finalizar (`pause`) para revisar el resultado.
 
-La ventana muestra el origen, el destino (`zona_r.tabla_resultado`) y la fecha de la partición. Se deben ingresar usuario y contraseña de la Nacional y presionar **Ejecutar carga** (o `Enter`). `Esc` o **Cancelar** terminan el proceso sin conectarse a nada.
+La ventana muestra el DSN de la Nacional, las tablas de origen, la zona destino, las tablas destino y la fecha de la partición. Se deben ingresar usuario y contraseña de la Nacional y presionar **Ejecutar carga** (o `Enter`). `Esc` o **Cancelar** terminan el proceso sin conectarse a nada.
 
-Al finalizar se muestra un mensaje con el resumen (filas extraídas, filas cargadas, duración) o con el error encontrado.
+Al finalizar se muestra un mensaje con el resultado de cada tabla (filas cargadas o error) y la duración total.
 
 ### Prueba de conexiones
 
@@ -99,8 +100,8 @@ Ejecutar `probar_conexiones.bat`. Abre la misma ventana y, con el botón **Proba
 
 | Conexión | Prueba | Resultado informado |
 |---|---|---|
-| Nacional | Conexión y `COUNT(*)` de la consulta de `VISIONR.CEAUTOEDT` | Si conecta y si el usuario puede leer la tabla (cantidad de filas) |
-| LZ | Conexión, `SELECT user()` y `SHOW TABLES IN {zona_r} LIKE '{tabla_resultado}'` | Usuario con el que conecta el DSN, si la zona es accesible y si la tabla destino ya existe |
+| Nacional | Conexión y `COUNT(*)` de la consulta de cada tabla de origen | Si conecta y si el usuario puede leer cada tabla (cantidad de filas) |
+| LZ | Conexión, `SELECT user()` y `SHOW TABLES IN {zona_r} LIKE '{tabla_resultado}'` por cada tabla destino | Usuario con el que conecta el DSN, si la zona es accesible y si cada tabla destino ya existe |
 
 Ambas conexiones se prueban aunque una falle. La prueba no valida permisos de creación de tablas; eso solo se comprueba en una carga real.
 
@@ -119,15 +120,28 @@ Archivo: `config/config.json`.
 | `nacional.dsn` | `NACIONALET01` | DSN ODBC de la Nacional |
 | `lz.dsn` | `Impala-cdp-kudu` | DSN ODBC de la LZ |
 | `lz.pedir_credenciales` | `false` | `false`: usa la autenticación guardada en el DSN. `true`: la ventana solicita también usuario y contraseña de la LZ |
-| `parametros_lz.zona_r` | `proceso_vspc_serv` | Zona donde se crea la tabla final |
-| `parametros_lz.zona_p` | `proceso_vspc_serv` | Zona de trabajo donde se crea y se borra la tabla temporal |
-| `parametros_lz.tabla_resultado` | `visionr_ceautoe` | Nombre de la tabla final |
-| `parametros_lz.tabla_temporal` | `tmp_visionr_ceautoe` | Nombre de la tabla temporal |
+| `parametros_lz.zona_r` | `proceso_vspc_serv` | Zona donde se crean las tablas finales |
+| `parametros_lz.zona_p` | `proceso_vspc_serv` | Zona de trabajo donde se crean y se borran las tablas temporales |
+| `cargas` | 2 entradas | Tablas a cargar, en el orden en que se procesan (ver abajo) |
 | `carga.filas_por_lote` | `2000` | Filas enviadas a la LZ en cada `INSERT` a la temporal |
 
 La llave `_notas` es informativa y el código no la lee.
 
-Todas las llaves de `parametros_lz` están disponibles como parámetros en los archivos SQL (`{zona_r}`, `{zona_p}`, `{tabla_resultado}`, `{tabla_temporal}`). Para agregar un parámetro nuevo basta con añadirlo a `parametros_lz` y usarlo en el SQL con la misma sintaxis.
+### Tablas a cargar (`cargas`)
+
+Cada entrada de la lista `cargas` define una tabla:
+
+| Llave | Descripción | Valores actuales |
+|---|---|---|
+| `tabla_origen` | Tabla de la Nacional que se consulta | `VISIONR.CEAUTOE` · `VISIONR.CEAUTOEDT` |
+| `tabla_resultado` | Nombre de la tabla final en `zona_r` | `visionr_ceautoe` · `visionr_ceautoedt` |
+| `tabla_temporal` | Nombre de la tabla temporal en `zona_p` | `tmp_visionr_ceautoe` · `tmp_visionr_ceautoedt` |
+
+Cada tabla se procesa de forma independiente: si una falla, la siguiente se procesa igual y el resumen final indica el resultado de cada una.
+
+### Parámetros en los SQL
+
+Para cada tabla, los archivos SQL reciben como parámetros las llaves de `parametros_lz` más las de su entrada en `cargas`: `{zona_r}`, `{zona_p}`, `{tabla_origen}`, `{tabla_resultado}` y `{tabla_temporal}`. Para agregar un parámetro común a todas las tablas se añade a `parametros_lz`; para uno propio de una tabla, a su entrada en `cargas`.
 
 ### Pruebas y producción
 
@@ -138,7 +152,7 @@ El ambiente se define únicamente con `zona_r`:
 | Pruebas | `proceso_vspc_serv` |
 | Producción | `resultados_vspc_serv` |
 
-`zona_p` permanece en `proceso_vspc_serv` en ambos casos. Los archivos SQL no deben modificarse para cambiar de ambiente: `{zona_r}` se usa en la creación, el insert final y la validación, y los tres deben apuntar a la misma zona.
+`zona_p` permanece en `proceso_vspc_serv` en ambos casos. Las dos tablas van siempre a la misma `zona_r`. Los archivos SQL no deben modificarse para cambiar de ambiente: `{zona_r}` se usa en la creación, el insert final y la validación, y los tres deben apuntar a la misma zona.
 
 ---
 
@@ -147,7 +161,7 @@ El ambiente se define únicamente con `zona_r`:
 ```
 ┌─────────────────────────┐   lotes de filas_por_lote   ┌──────────────────────────────┐
 │ Nacional (AS/400)       │ ──────────────────────────► │ {zona_p}.{tabla_temporal}    │
-│ VISIONR.CEAUTOEDT         │   INSERT INTO ... VALUES    │ todas las columnas STRING    │
+│ {tabla_origen}          │   INSERT INTO ... VALUES    │ todas las columnas STRING    │
 └─────────────────────────┘                             └──────────────┬───────────────┘
                                                                        │ INSERT OVERWRITE
                                                                        │ partición del día
@@ -158,31 +172,35 @@ El ambiente se define únicamente con `zona_r`:
                                                         └──────────────────────────────┘
 ```
 
+El flujo se repite para cada entrada de `cargas` (primero `VISIONR.CEAUTOE`, luego `VISIONR.CEAUTOEDT`).
+
 Secuencia de `main.py`:
 
 1. Lee `config/config.json` e inicia el log.
 2. Muestra la ventana de credenciales.
-3. Conecta a la Nacional y a la LZ. Ambas conexiones se abren antes de extraer datos para detectar fallas de conexión de inmediato.
-4. Ejecuta los pasos de `carga.py`:
+3. Conecta a la Nacional y a la LZ. Ambas conexiones se abren antes de extraer datos para detectar fallas de conexión de inmediato; las dos tablas usan las mismas conexiones.
+4. Para cada tabla de `cargas`, ejecuta los pasos de `carga.py`:
 
 | Paso | Acción | Archivo SQL |
 |---|---|---|
 | 1/5 | Crea la tabla final si no existe | `01_crear_tabla_resultado.sql` |
 | 2/5 | Borra y crea de nuevo la tabla temporal | `02_crear_tabla_temporal.sql` |
-| 3/5 | Cuenta las filas de origen (solo para mostrar avance), valida las columnas de la consulta, lee la Nacional por lotes e inserta cada lote en la temporal | `consulta_ceautoedt.sql`, `03_insertar_lote_temporal.sql` |
+| 3/5 | Cuenta las filas de origen (solo para mostrar avance), valida las columnas de la consulta, lee la Nacional por lotes e inserta cada lote en la temporal | `consulta_origen.sql`, `03_insertar_lote_temporal.sql` |
 | 4/5 | Pasa la temporal a la tabla final aplicando tipos; reemplaza solo la partición del día | `04_insertar_resultado.sql` |
 | 5/5 | Compara las filas de la partición del día con las extraídas y cuenta fechas nulas | `05_validar_carga.sql` |
 | Final | Borra la tabla temporal. Se ejecuta siempre, incluso si un paso anterior falla | `99_limpieza.sql` |
 
-5. Cierra las conexiones y muestra el mensaje final.
+5. Cierra las conexiones y muestra el mensaje final con el resultado de cada tabla.
 
-Si la Nacional no devuelve filas, se omiten los pasos 4 y 5: la partición del día no se modifica y el proceso termina con una advertencia.
+Si la Nacional no devuelve filas para una tabla, se omiten sus pasos 4 y 5: la partición del día de esa tabla no se modifica y el resumen lo indica con una advertencia.
+
+Si una tabla falla en cualquier paso, se registra el error, se borra su temporal y se continúa con la siguiente. El proceso termina con error si al menos una tabla falló.
 
 ---
 
 ## Tabla destino
 
-`{zona_r}.visionr_ceautoe`, formato parquet, `transactional=false`.
+`{zona_r}.visionr_ceautoe` y `{zona_r}.visionr_ceautoedt`, formato parquet, `transactional=false`. Ambas tienen la misma estructura; el comentario de cada tabla indica su tabla de origen.
 
 | Columna | Tipo | Campo AS/400 | Descripción |
 |---|---|---|---|
@@ -222,7 +240,7 @@ La fecha de las particiones se calcula con `CURRENT_DATE()` del servidor de Impa
 
 ## Tabla temporal
 
-`{zona_p}.tmp_visionr_ceautoe`, con las mismas columnas de la consulta, todas de tipo `string`. Se crea al inicio de cada ejecución y se borra al final con `DROP TABLE ... PURGE`.
+Una por tabla: `{zona_p}.tmp_visionr_ceautoe` y `{zona_p}.tmp_visionr_ceautoedt`, con las mismas columnas de la consulta, todas de tipo `string`. Cada una se crea al inicio de la carga de su tabla y se borra al terminarla con `DROP TABLE ... PURGE`.
 
 Razones para usar una tabla intermedia:
 
@@ -264,11 +282,11 @@ Si cambia la contraseña de red del usuario guardado en el DSN, debe actualizars
 
 ### `main.py`
 
-Punto de entrada de la carga. Configura el log, lee la configuración, muestra la ventana, abre las conexiones, invoca `ejecutar_carga` y muestra el mensaje final. Cierra las conexiones en cualquier caso. Devuelve `0` si termina bien o sin datos, y `1` si hay error o cancelación.
+Punto de entrada de la carga. Configura el log, lee la configuración, muestra la ventana, abre las conexiones, invoca `ejecutar_cargas` y muestra el mensaje final con una línea por tabla (`_linea_resumen`). Cierra las conexiones en cualquier caso. Devuelve `0` si todas las tablas terminan bien o sin datos, y `1` si alguna falla o si se cancela.
 
 ### `probar_conexiones.py`
 
-Punto de entrada de la prueba de conexiones. Ejecuta `_probar_nacional` y `_probar_lz` de forma independiente y muestra el resultado de ambas. No crea ni modifica objetos en ninguna base.
+Punto de entrada de la prueba de conexiones. Ejecuta `_probar_nacional` (conteo de cada tabla de origen) y `_probar_lz` (estado de cada tabla destino) de forma independiente y muestra el resultado de ambas. No crea ni modifica objetos en ninguna base.
 
 ### `interfaz.py`
 
@@ -300,8 +318,10 @@ Contiene los pasos de la carga.
 
 | Elemento | Descripción |
 |---|---|
-| `ejecutar_carga(con_nal, con_lz, config)` | Ejecuta los pasos 1 a 5 y la limpieza. Devuelve un `Resumen` |
-| `Resumen` | `destino`, `filas_extraidas`, `filas_cargadas`, `fechas_nulas` |
+| `ejecutar_cargas(con_nal, con_lz, config)` | Recorre `cargas` y carga cada tabla con `_cargar_tabla`. Si una tabla falla, registra el error y continúa. Devuelve una lista de `Resumen`, uno por tabla |
+| `_cargar_tabla(con_nal, con_lz, params, filas_por_lote)` | Ejecuta los pasos 1 a 5 y la limpieza para una tabla |
+| `parametros_carga(config, carga)` | Une `parametros_lz` con la entrada de `cargas` para formar los parámetros de los SQL de una tabla |
+| `Resumen` | `origen`, `destino`, `filas_extraidas`, `filas_cargadas`, `fechas_nulas`, `error` (`None` si la tabla terminó bien) |
 | `COLUMNAS_NACIONAL` | Columnas que debe devolver la consulta de la Nacional, en orden |
 | `SQL_*` | Rutas de los archivos SQL usados en cada paso |
 
@@ -360,8 +380,8 @@ En los textos se escapan `\`, `'`, saltos de línea y retornos de carro.
 
 | Archivo | Sentencias | Parámetros |
 |---|---|---|
-| `nacional/consulta_ceautoedt.sql` | `SELECT` sobre `VISIONR.CEAUTOEDT` | — |
-| `lz/01_crear_tabla_resultado.sql` | `CREATE TABLE IF NOT EXISTS` | `zona_r`, `tabla_resultado` |
+| `nacional/consulta_origen.sql` | `SELECT` sobre la tabla de origen | `tabla_origen` |
+| `lz/01_crear_tabla_resultado.sql` | `CREATE TABLE IF NOT EXISTS` | `zona_r`, `tabla_resultado`, `tabla_origen` |
 | `lz/02_crear_tabla_temporal.sql` | `DROP TABLE IF EXISTS ... PURGE` y `CREATE TABLE` | `zona_p`, `tabla_temporal` |
 | `lz/03_insertar_lote_temporal.sql` | `INSERT INTO ... VALUES` | `zona_p`, `tabla_temporal`, `valores` |
 | `lz/04_insertar_resultado.sql` | `INSERT OVERWRITE ... PARTITION (...) SELECT` | `zona_r`, `tabla_resultado`, `zona_p`, `tabla_temporal` |
@@ -373,15 +393,15 @@ Reglas de escritura:
 - Los archivos se leen en UTF-8 (con o sin BOM).
 - Las líneas que comienzan con `--` se eliminan antes de ejecutar. Solo se deben usar comentarios de línea completa; no se admiten comentarios al final de una línea con código ni comentarios de bloque `/* */`.
 - Las sentencias se separan por `;`. No se debe usar `;` dentro de textos o comentarios de las sentencias.
-- Los parámetros se escriben entre llaves (`{zona_r}`). Si un archivo usa un parámetro que no existe en `parametros_lz`, el proceso falla indicando el archivo y el parámetro.
+- Los parámetros se escriben entre llaves (`{zona_r}`). Si un archivo usa un parámetro que no existe en `parametros_lz` ni en la entrada de `cargas`, el proceso falla indicando el archivo y el parámetro.
 - `03_insertar_lote_temporal.sql` debe contener una sola sentencia; el marcador `{valores}` se reemplaza con las filas de cada lote.
-- El orden y los alias de las columnas de `consulta_ceautoedt.sql` deben coincidir con `COLUMNAS_NACIONAL` en `carga.py`.
+- El orden y los alias de las columnas de `consulta_origen.sql` deben coincidir con `COLUMNAS_NACIONAL` en `carga.py`.
 
 ---
 
 ## Reejecución
 
-El insert final usa `INSERT OVERWRITE` con partición dinámica. Impala reemplaza únicamente las particiones que reciben datos; como todas las filas llevan la fecha del día, solo se reemplaza la partición del día y las particiones de otros días no se modifican.
+El insert final usa `INSERT OVERWRITE` con partición dinámica. Impala reemplaza únicamente las particiones que reciben datos; como todas las filas llevan la fecha del día, solo se reemplaza la partición del día y las particiones de otros días no se modifican. Lo descrito a continuación aplica a cada tabla por separado.
 
 | Escenario | Resultado |
 |---|---|
@@ -390,6 +410,7 @@ El insert final usa `INSERT OVERWRITE` con partición dinámica. Impala reemplaz
 | Ejecución en otro día | Crea una partición nueva; las anteriores se conservan |
 | La Nacional no devuelve filas | No se ejecuta el insert final; la partición del día queda como estaba |
 | Falla durante la extracción o los lotes | No se ejecuta el insert final; la tabla final no se modifica |
+| Falla una tabla y la otra termina bien | La tabla exitosa queda cargada. Para completar, se vuelve a ejecutar el mismo día: la tabla que ya estaba cargada se reemplaza con los mismos datos y la fallida se carga |
 
 ---
 
@@ -400,9 +421,11 @@ El insert final usa `INSERT OVERWRITE` con partición dinámica. Impala reemplaz
 | Validación | Momento | Efecto si falla |
 |---|---|---|
 | Campos de la ventana completos | Al presionar el botón | Mensaje en la ventana; no continúa |
-| Columnas de la consulta = `COLUMNAS_NACIONAL` | Antes de leer los lotes | Error; la tabla final no se modifica |
-| Filas de la partición del día = filas extraídas | Paso 5 | Error con ambos conteos. Los datos ya quedaron cargados en la partición y deben revisarse |
+| Columnas de la consulta = `COLUMNAS_NACIONAL` | Antes de leer los lotes | Error en esa tabla; su tabla final no se modifica |
+| Filas de la partición del día = filas extraídas | Paso 5 | Error en esa tabla con ambos conteos. Los datos ya quedaron cargados en la partición y deben revisarse |
 | `fecha_efectiva` nula | Paso 5 | Advertencia con la cantidad de filas; no detiene el proceso |
+
+Un error en una tabla no detiene la carga de las demás.
 
 ### Logs
 
@@ -410,18 +433,21 @@ Cada ejecución, tanto de la carga como de la prueba de conexiones, genera `logs
 
 ```
 2026-10-12 08:00:05 | INFO    | === Se inicia la carga Nacional -> LZ Nube ===
-2026-10-12 08:00:05 | INFO    | Destino: proceso_vspc_serv.visionr_ceautoe
+2026-10-12 08:00:05 | INFO    | Destino: proceso_vspc_serv · Tablas: visionr_ceautoe, visionr_ceautoedt
 2026-10-12 08:00:21 | INFO    | ▶ Conectando a Nacional (AS/400) con DSN NACIONALET01, usuario usuario1...
 2026-10-12 08:00:22 | INFO    | ✔ Conexión a Nacional exitosa.
 2026-10-12 08:00:22 | INFO    | ▶ Conectando a LZ Nube con DSN Impala-cdp-kudu (autenticación del DSN)...
 2026-10-12 08:00:23 | INFO    | ✔ Conexión a LZ exitosa.
+2026-10-12 08:00:23 | INFO    | === Tabla 1/2: VISIONR.CEAUTOE -> proceso_vspc_serv.visionr_ceautoe ===
 2026-10-12 08:00:23 | INFO    | ▶ [1/5] Creando tabla destino proceso_vspc_serv.visionr_ceautoe (si no existe)...
 ...
 2026-10-12 08:03:40 | INFO    |    Lote 120/305 · 240.000 filas en la temporal · faltan ~5 min 04 s
 ...
-2026-10-12 08:09:06 | INFO    | ✔ Validación correcta: 609.571 filas en la partición de hoy.
+2026-10-12 08:09:06 | INFO    | ✔ Validación correcta: 609.571 filas en la partición de hoy de proceso_vspc_serv.visionr_ceautoe.
 2026-10-12 08:09:07 | INFO    | ▶ Borrando tabla temporal proceso_vspc_serv.tmp_visionr_ceautoe...
-2026-10-12 08:09:08 | INFO    | === Proceso finalizado exitosamente (8 min 47 s) ===
+2026-10-12 08:09:08 | INFO    | === Tabla 2/2: VISIONR.CEAUTOEDT -> proceso_vspc_serv.visionr_ceautoedt ===
+...
+2026-10-12 08:12:30 | INFO    | === Proceso finalizado exitosamente (12 min 09 s) ===
 ```
 
 Las contraseñas no se registran en el log.
@@ -430,7 +456,7 @@ Las contraseñas no se registran en el log.
 
 ## Rendimiento
 
-La cantidad de `INSERT` a la temporal es el total de filas de origen dividido entre `filas_por_lote`. Como referencia, con 609.571 filas y `filas_por_lote = 2000` se requieren unos 305 `INSERT`. El tiempo total estimado está entre 5 y 15 minutos, dependiendo de la carga del clúster.
+La cantidad de `INSERT` a la temporal de cada tabla es su total de filas de origen dividido entre `filas_por_lote`. Como referencia, con 609.571 filas y `filas_por_lote = 2000` se requieren unos 305 `INSERT`, entre 5 y 15 minutos según la carga del clúster. Las tablas se cargan una después de otra, por lo que el tiempo total es la suma de ambas.
 
 `filas_por_lote` permite ajustar el balance:
 
@@ -449,28 +475,46 @@ El consumo de memoria del PC depende del tamaño del lote, no del total de filas
 | `No fue posible conectar a la LZ` | DSN inexistente o contraseña guardada en el DSN vencida | Verificar el DSN `Impala-cdp-kudu` en el administrador ODBC y actualizar la contraseña. Alternativamente, usar `pedir_credenciales: true` |
 | `Data source name not found` | Nombre del DSN distinto al del config, o DSN creado en el administrador ODBC de otro bitness | Ajustar el nombre en `config.json` o crear el DSN en el administrador ODBC de 64 bits |
 | `AuthorizationException` al crear o insertar | El usuario del DSN no tiene permisos en la zona | Solicitar permisos sobre `zona_r` / `zona_p` |
-| `Las columnas de la consulta de la Nacional no coinciden` | Se modificó `consulta_ceautoedt.sql` | Alinear la consulta, `COLUMNAS_NACIONAL` y los SQL de la LZ (ver [Mantenimiento](#mantenimiento)) |
+| `Las columnas de la consulta de la Nacional no coinciden` | Se modificó `consulta_origen.sql` | Alinear la consulta, `COLUMNAS_NACIONAL` y los SQL de la LZ (ver [Mantenimiento](#mantenimiento)) |
 | `El conteo no coincide` | Ejecuciones simultáneas sobre la misma tabla o cambio de fecha en el servidor durante la ejecución | Volver a ejecutar; el `INSERT OVERWRITE` reemplaza la partición del día |
 | Advertencia de `fecha_efectiva` vacía o inválida | Valores en `CEFT65` que no son fechas `AAAAMMDD` válidas (ej. `0`) | Revisar los registros en origen; el resto de la carga es válida |
 | La ventana no abre y pide datos por consola | Tkinter o Pillow no disponibles en el Python del equipo | Ingresar las credenciales por consola, ejecutar desde el `.bat` (instala Pillow) o reinstalar Python con Tkinter |
 | Tildes incorrectas en los comentarios de la tabla | Archivo SQL guardado en una codificación distinta de UTF-8 | Guardar el archivo en UTF-8 |
-| Queda la tabla `tmp_visionr_ceautoe` en `zona_p` | Una ejecución se interrumpió antes de la limpieza | No requiere acción; la siguiente ejecución la elimina |
+| Queda una tabla `tmp_visionr_...` en `zona_p` | Una ejecución se interrumpió antes de la limpieza | No requiere acción; la siguiente ejecución la elimina |
+| El resumen muestra una tabla con ✖ y otra con ✔ | Falló solo una de las tablas (permisos sobre la tabla de origen, error de SQL, etc.) | Revisar el error de esa tabla en el log, corregir y volver a ejecutar el mismo día |
 
 ---
 
 ## Mantenimiento
 
+### Agregar otra tabla de origen
+
+Si la nueva tabla tiene las mismas columnas, basta con agregar una entrada en `cargas` de `config.json`:
+
+```json
+{
+    "tabla_origen": "VISIONR.NUEVA",
+    "tabla_resultado": "visionr_nueva",
+    "tabla_temporal": "tmp_visionr_nueva"
+}
+```
+
+Si tiene columnas distintas, requiere su propia consulta y sus propios SQL de la LZ.
+
 ### Agregar una columna
 
-1. Agregar el campo con su alias en `sql/nacional/consulta_ceautoedt.sql`.
+Los cambios aplican a todas las tablas de `cargas`, porque comparten la consulta y los SQL.
+
+1. Agregar el campo con su alias en `sql/nacional/consulta_origen.sql`.
 2. Agregar el alias en `COLUMNAS_NACIONAL` (`src/carga.py`), en la misma posición.
 3. Agregar la columna como `string` en `02_crear_tabla_temporal.sql` y en la lista de columnas de `03_insertar_lote_temporal.sql`, en la misma posición.
 4. Agregar la columna con su tipo y `comment` en `01_crear_tabla_resultado.sql`, antes de las particiones.
 5. Agregar la columna con su conversión en el `SELECT` de `04_insertar_resultado.sql`, antes de las columnas de partición y en el mismo orden de la tabla final.
-6. Si la tabla final ya existe, `CREATE TABLE IF NOT EXISTS` no la modifica. Se debe agregar la columna manualmente:
+6. Si las tablas finales ya existen, `CREATE TABLE IF NOT EXISTS` no las modifica. Se debe agregar la columna manualmente en cada una:
 
    ```sql
    ALTER TABLE resultados_vspc_serv.visionr_ceautoe ADD COLUMNS (nueva_columna string COMMENT '...');
+   ALTER TABLE resultados_vspc_serv.visionr_ceautoedt ADD COLUMNS (nueva_columna string COMMENT '...');
    ```
 
    Las columnas agregadas con `ALTER TABLE` quedan al final, antes de las particiones; el orden del `SELECT` en `04_insertar_resultado.sql` debe coincidir con ese orden.
@@ -482,4 +526,4 @@ El consumo de memoria del PC depende del tamaño del lote, no del total de filas
 
 ### Cambiar la consulta de origen
 
-Se puede modificar libremente mientras devuelva las mismas columnas, con los mismos alias y en el mismo orden. Por ejemplo, agregar un `WHERE` no requiere cambios en otros archivos.
+Se puede modificar libremente mientras devuelva las mismas columnas, con los mismos alias y en el mismo orden, y conserve `FROM {tabla_origen}`. Por ejemplo, agregar un `WHERE` no requiere cambios en otros archivos; el cambio aplica a todas las tablas de `cargas`.

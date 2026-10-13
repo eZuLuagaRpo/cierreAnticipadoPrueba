@@ -1,0 +1,5 @@
+include src/compensa_provision/static/*.json
+include src/compensa_provision/static/sql/*.sql
+include src/compensa_provision/static/sql/etl/*.*
+include versioneer.py
+include src/compensa_provision/_version.py

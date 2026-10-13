@@ -1,9 +1,12 @@
 # carga.py
 """
-Pasos de la carga Nacional -> LZ Nube:
+Carga Nacional -> LZ Nube de cada tabla definida en "cargas" (config.json).
+Cada tabla se carga de forma independiente; si una falla, se continúa con la siguiente.
+
+Pasos por tabla:
   1. Crea la tabla final {zona_r}.{tabla_resultado} si no existe.
   2. Crea de cero la tabla temporal {zona_p}.{tabla_temporal}.
-  3. Lee la Nacional por lotes y los inserta en la temporal.
+  3. Lee {tabla_origen} de la Nacional por lotes y los inserta en la temporal.
   4. INSERT OVERWRITE de la temporal a la tabla final (solo la partición de hoy).
   5. Valida que la partición de hoy tenga las mismas filas que se extrajeron.
   Siempre, aunque algo falle: borra la tabla temporal.
@@ -12,6 +15,7 @@ import logging
 import math
 import time
 from dataclasses import dataclass
+from typing import Optional
 
 import lz
 import nacional
@@ -20,7 +24,7 @@ from configuracion import leer_plantilla_lote, leer_sentencias
 
 log = logging.getLogger(NOMBRE_LOG)
 
-SQL_CONSULTA_NACIONAL = "nacional/consulta_ceautoedt.sql"
+SQL_CONSULTA_NACIONAL = "nacional/consulta_origen.sql"
 SQL_CREAR_TABLA_RESULTADO = "lz/01_crear_tabla_resultado.sql"
 SQL_CREAR_TABLA_TEMPORAL = "lz/02_crear_tabla_temporal.sql"
 SQL_INSERTAR_LOTE_TEMPORAL = "lz/03_insertar_lote_temporal.sql"
@@ -45,15 +49,38 @@ COLUMNAS_NACIONAL = [
 
 @dataclass
 class Resumen:
+    origen: str
     destino: str
-    filas_extraidas: int
-    filas_cargadas: int
-    fechas_nulas: int
+    filas_extraidas: int = 0
+    filas_cargadas: int = 0
+    fechas_nulas: int = 0
+    error: Optional[str] = None
 
 
-def ejecutar_carga(con_nal, con_lz, config: dict) -> Resumen:
-    params = config["parametros_lz"]
+def parametros_carga(config: dict, carga: dict) -> dict:
+    """Parámetros para los SQL de una tabla: zonas de parametros_lz + datos de la entrada de "cargas"."""
+    return {**config["parametros_lz"], **carga}
+
+
+def ejecutar_cargas(con_nal, con_lz, config: dict) -> list[Resumen]:
+    cargas = config["cargas"]
     filas_por_lote = int(config["carga"]["filas_por_lote"])
+    resumenes = []
+    for numero, carga in enumerate(cargas, start=1):
+        params = parametros_carga(config, carga)
+        origen = params["tabla_origen"]
+        destino = f"{params['zona_r']}.{params['tabla_resultado']}"
+        log.info("=== Tabla %s/%s: %s -> %s ===", numero, len(cargas), origen, destino)
+        try:
+            resumenes.append(_cargar_tabla(con_nal, con_lz, params, filas_por_lote))
+        except Exception as e:
+            log.exception("✖ Falló la carga de %s", origen)
+            resumenes.append(Resumen(origen, destino, error=str(e)))
+    return resumenes
+
+
+def _cargar_tabla(con_nal, con_lz, params: dict, filas_por_lote: int) -> Resumen:
+    origen = params["tabla_origen"]
     destino = f"{params['zona_r']}.{params['tabla_resultado']}"
     temporal = f"{params['zona_p']}.{params['tabla_temporal']}"
 
@@ -66,8 +93,8 @@ def ejecutar_carga(con_nal, con_lz, config: dict) -> Resumen:
     try:
         filas_extraidas = _cargar_temporal(con_nal, con_lz, params, filas_por_lote)
         if filas_extraidas == 0:
-            log.warning("⚠ La Nacional no devolvió filas. No se modifica la tabla destino.")
-            return Resumen(destino, 0, 0, 0)
+            log.warning("⚠ %s no devolvió filas. No se modifica %s.", origen, destino)
+            return Resumen(origen, destino)
 
         log.info("▶ [4/5] Cargando %s (solo se reemplaza la partición de hoy)...", destino)
         lz.ejecutar(con_lz, leer_sentencias(SQL_INSERTAR_RESULTADO, params))
@@ -77,13 +104,13 @@ def ejecutar_carga(con_nal, con_lz, config: dict) -> Resumen:
         filas_cargadas, fechas_nulas = int(fila[0]), int(fila[1] or 0)
         if filas_cargadas != filas_extraidas:
             raise RuntimeError(
-                f"El conteo no coincide: se extrajeron {miles(filas_extraidas)} filas de la Nacional "
+                f"El conteo no coincide: se extrajeron {miles(filas_extraidas)} filas de {origen} "
                 f"y la partición de hoy en {destino} tiene {miles(filas_cargadas)}."
             )
         if fechas_nulas:
             log.warning("⚠ %s filas quedaron con fecha_efectiva vacía o inválida en el origen.", miles(fechas_nulas))
-        log.info("✔ Validación correcta: %s filas en la partición de hoy.", miles(filas_cargadas))
-        return Resumen(destino, filas_extraidas, filas_cargadas, fechas_nulas)
+        log.info("✔ Validación correcta: %s filas en la partición de hoy de %s.", miles(filas_cargadas), destino)
+        return Resumen(origen, destino, filas_extraidas, filas_cargadas, fechas_nulas)
     finally:
         _borrar_temporal(con_lz, params, temporal)
 
@@ -95,8 +122,8 @@ def _cargar_temporal(con_nal, con_lz, params: dict, filas_por_lote: int) -> int:
     total = nacional.contar_filas(con_nal, consulta)
     lotes_totales = math.ceil(total / filas_por_lote) if total else None
     log.info(
-        "▶ [3/5] Leyendo la Nacional y cargando la temporal (%s filas, lotes de %s)...",
-        miles(total) if total is not None else "?", miles(filas_por_lote),
+        "▶ [3/5] Leyendo %s y cargando la temporal (%s filas, lotes de %s)...",
+        params["tabla_origen"], miles(total) if total is not None else "?", miles(filas_por_lote),
     )
 
     cursor = nacional.abrir_consulta(con_nal, consulta)

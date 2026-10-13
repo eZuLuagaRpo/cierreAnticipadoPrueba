@@ -1,7 +1,8 @@
 {
     "_notas": [
-        "zona_r: zona donde queda la tabla final. Producción = resultados_vspc_serv | Pruebas = proceso_vspc_serv",
-        "zona_p: zona de trabajo donde se crea y se borra la tabla temporal en cada ejecución",
+        "zona_r: zona donde quedan las tablas finales. Producción = resultados_vspc_serv | Pruebas = proceso_vspc_serv",
+        "zona_p: zona de trabajo donde se crean y se borran las tablas temporales en cada ejecución",
+        "cargas: una entrada por tabla de la Nacional que se sube a la LZ, en el orden en que se cargan",
         "lz.pedir_credenciales: false = usa la autenticación guardada en el DSN | true = la ventana pide usuario y contraseña de la LZ",
         "carga.filas_por_lote: filas que se envían a la LZ en cada INSERT a la tabla temporal"
     ],
@@ -14,10 +15,20 @@
     },
     "parametros_lz": {
         "zona_r": "proceso_vspc_serv",
-        "zona_p": "proceso_vspc_serv",
-        "tabla_resultado": "visionr_ceautoe",
-        "tabla_temporal": "tmp_visionr_ceautoe"
+        "zona_p": "proceso_vspc_serv"
     },
+    "cargas": [
+        {
+            "tabla_origen": "VISIONR.CEAUTOE",
+            "tabla_resultado": "visionr_ceautoe",
+            "tabla_temporal": "tmp_visionr_ceautoe"
+        },
+        {
+            "tabla_origen": "VISIONR.CEAUTOEDT",
+            "tabla_resultado": "visionr_ceautoedt",
+            "tabla_temporal": "tmp_visionr_ceautoedt"
+        }
+    ],
     "carga": {
         "filas_por_lote": 2000
     }

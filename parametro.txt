@@ -126,4 +126,4 @@ Obviamente cuando construyamos nuestra ETL hay cosas en la ETL de ejemplo que no
 
 También, en la raíz del proyecto también adjunte un Excel que contiene todas las definiciones de las tablas, fultros que se usan, entre otros. Este es mas bien una documentación de lo que se usa.
 
-Contextualizate bien de todo, la ETL ejemplo, como funciona, la estructura y todo. Y dime si queda claro? Ya con este query listo seria mas que todo organizarlo en la ETL
+Contextualizate bien de todo, la ETL ejemplo, como funciona, como se construye, como se conecta todo, archivo por archivo, la estructura y todo. Y dime si queda claro? Ya con este query listo seria mas que todo organizarlo en la ETL

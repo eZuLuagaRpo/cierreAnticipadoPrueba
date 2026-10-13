@@ -1,7 +1,7 @@
 # main.py
 """
-Proceso principal: pide credenciales, conecta a la Nacional y a la LZ y ejecuta la carga
-de VISIONR.CEAUTOEDT hacia {zona_r}.visionr_ceautoe.
+Proceso principal: pide credenciales, conecta a la Nacional y a la LZ y carga cada tabla
+de "cargas" (config.json), por ejemplo VISIONR.CEAUTOE y VISIONR.CEAUTOEDT, hacia {zona_r}.
 """
 import logging
 import sys
@@ -13,7 +13,7 @@ import interfaz
 import lz
 import nacional
 from bitacora import NOMBRE_LOG, configurar_bitacora, duracion, miles
-from carga import ejecutar_carga
+from carga import Resumen, ejecutar_cargas
 
 log = logging.getLogger(NOMBRE_LOG)
 
@@ -25,14 +25,16 @@ def main() -> int:
     try:
         # 0) Configuración
         config = configuracion.cargar_config()
-        params = config["parametros_lz"]
-        destino = f"{params['zona_r']}.{params['tabla_resultado']}"
-        log.info("Destino: %s", destino)
+        zona_r = config["parametros_lz"]["zona_r"]
+        cargas = config["cargas"]
+        log.info("Destino: %s · Tablas: %s", zona_r, ", ".join(c["tabla_resultado"] for c in cargas))
 
         # 1) Ventana de credenciales
         info = [
-            ("Origen", f"VISIONR.CEAUTOEDT  (DSN {config['nacional']['dsn']})"),
-            ("Destino", destino),
+            ("Nacional", f"DSN {config['nacional']['dsn']}"),
+            ("Origen", "  ·  ".join(c["tabla_origen"] for c in cargas)),
+            ("Destino", zona_r),
+            ("Tablas", "  ·  ".join(c["tabla_resultado"] for c in cargas)),
             ("Partición", f"{date.today():%d/%m/%Y}  ·  se reemplaza si ya existe"),
         ]
         credenciales = interfaz.solicitar_credenciales(
@@ -52,8 +54,8 @@ def main() -> int:
             cred_lz.password if cred_lz else None,
         )
 
-        # 3) Carga
-        resumen = ejecutar_carga(con_nal, con_lz, config)
+        # 3) Carga de cada tabla
+        resumenes = ejecutar_cargas(con_nal, con_lz, config)
 
     except Exception as e:
         log.exception("✖ El proceso terminó con errores.")
@@ -68,23 +70,33 @@ def main() -> int:
                     pass
 
     tiempo = duracion(time.time() - inicio)
-    if resumen.filas_extraidas == 0:
-        log.info("=== Proceso finalizado sin datos (%s) ===", tiempo)
-        interfaz.mostrar_resultado("advertencia", "Carga sin datos",
-                                   "La Nacional no devolvió filas.\nLa tabla destino no se modificó.")
-        return 0
+    fallidas = [r for r in resumenes if r.error]
+    sin_datos = [r for r in resumenes if not r.error and r.filas_extraidas == 0]
 
-    lineas = [
-        f"Destino: {resumen.destino}",
-        f"Filas extraídas de la Nacional: {miles(resumen.filas_extraidas)}",
-        f"Filas cargadas en la LZ: {miles(resumen.filas_cargadas)}",
-        f"Duración: {tiempo}",
-    ]
-    if resumen.fechas_nulas:
-        lineas.append(f"Filas con fecha_efectiva vacía o inválida: {miles(resumen.fechas_nulas)}")
+    lineas = [_linea_resumen(r) for r in resumenes] + ["", f"Duración: {tiempo}"]
+    if fallidas:
+        lineas += ["", f"Detalle en el log:\n{ruta_log}"]
+        log.error("=== Proceso finalizado con %s de %s tablas fallidas (%s) ===", len(fallidas), len(resumenes), tiempo)
+        interfaz.mostrar_resultado("error", "Carga con errores", "\n".join(lineas))
+        return 1
+    if sin_datos:
+        log.warning("=== Proceso finalizado; %s tabla(s) sin datos en origen (%s) ===", len(sin_datos), tiempo)
+        interfaz.mostrar_resultado("advertencia", "Carga finalizada con advertencias", "\n".join(lineas))
+        return 0
     log.info("=== Proceso finalizado exitosamente (%s) ===", tiempo)
     interfaz.mostrar_resultado("info", "Carga finalizada", "\n".join(lineas))
     return 0
+
+
+def _linea_resumen(r: Resumen) -> str:
+    if r.error:
+        return f"✖ {r.origen} → {r.destino}\n    {r.error}"
+    if r.filas_extraidas == 0:
+        return f"⚠ {r.origen} → {r.destino}\n    La Nacional no devolvió filas; la tabla no se modificó."
+    texto = f"✔ {r.origen} → {r.destino}\n    {miles(r.filas_cargadas)} filas cargadas"
+    if r.fechas_nulas:
+        texto += f" · {miles(r.fechas_nulas)} con fecha_efectiva vacía o inválida"
+    return texto
 
 
 if __name__ == "__main__":

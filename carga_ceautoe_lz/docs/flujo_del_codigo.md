@@ -25,10 +25,10 @@ Para la descripción funcional del proceso (requisitos, configuración, tabla de
 1. `ejecutar.bat` prepara el ambiente de Python y ejecuta `src/main.py`.
 2. `main.py` configura el log, lee `config/config.json` y abre la ventana de credenciales (`interfaz.py`).
 3. Con las credenciales, `main.py` abre la conexión a la Nacional (`nacional.py`) y a la LZ (`lz.py`).
-4. `main.py` entrega las dos conexiones y la configuración a `carga.ejecutar_carga`, que ejecuta los pasos de la carga.
-5. Cada paso toma un archivo de `sql/`, lo lee con `configuracion.py` (quita comentarios, reemplaza `{parámetros}` y separa sentencias) y lo ejecuta con `nacional.py` o `lz.py`.
+4. `main.py` entrega las dos conexiones y la configuración a `carga.ejecutar_cargas`, que recorre la lista `cargas` (`VISIONR.CEAUTOE`, `VISIONR.CEAUTOEDT`) y ejecuta los pasos de la carga para cada tabla.
+5. Cada paso toma un archivo de `sql/`, lo lee con `configuracion.py` (quita comentarios, reemplaza `{parámetros}` y separa sentencias) y lo ejecuta con `nacional.py` o `lz.py`. Los mismos archivos SQL sirven para todas las tablas; cambian solo los parámetros (`{tabla_origen}`, `{tabla_resultado}`, `{tabla_temporal}`).
 6. Los datos pasan de la Nacional a la LZ por lotes: `nacional.leer_por_lotes` entrega bloques de filas y `lz.insertar_lote` los convierte en un `INSERT ... VALUES` sobre la tabla temporal.
-7. Al terminar, `carga.py` borra la temporal, `main.py` cierra las conexiones y `interfaz.py` muestra el resultado.
+7. Al terminar cada tabla, `carga.py` borra su temporal. Al final, `main.py` cierra las conexiones e `interfaz.py` muestra el resultado de cada tabla.
 
 ---
 
@@ -40,7 +40,7 @@ Para la descripción funcional del proceso (requisitos, configuración, tabla de
 |---|---|---|
 | Entrada | `main.py` | Orquesta la carga completa: log, configuración, ventana, conexiones, carga y mensaje final |
 | Entrada | `probar_conexiones.py` | Orquesta la prueba de conexiones (solo lectura) |
-| Orquestación | `carga.py` | Define los pasos de la carga y el orden de los archivos SQL |
+| Orquestación | `carga.py` | Recorre las tablas de `cargas`, define los pasos de la carga y el orden de los archivos SQL |
 | Acceso a datos | `nacional.py` | Conexión a la Nacional y lectura de la consulta |
 | Acceso a datos | `lz.py` | Conexión a la LZ, ejecución de sentencias y armado de los `INSERT` por lotes |
 | Soporte | `configuracion.py` | Rutas del proyecto, lectura de `config.json` y de los archivos SQL |
@@ -65,8 +65,8 @@ Para la descripción funcional del proceso (requisitos, configuración, tabla de
 
 | Archivo | Importa del proyecto |
 |---|---|
-| `main.py` | `configuracion`, `interfaz`, `lz`, `nacional`, `bitacora` (`NOMBRE_LOG`, `configurar_bitacora`, `duracion`, `miles`), `carga` (`ejecutar_carga`) |
-| `probar_conexiones.py` | `configuracion`, `interfaz`, `lz`, `nacional`, `bitacora` (`NOMBRE_LOG`, `configurar_bitacora`, `miles`), `carga` (`SQL_CONSULTA_NACIONAL`) |
+| `main.py` | `configuracion`, `interfaz`, `lz`, `nacional`, `bitacora` (`NOMBRE_LOG`, `configurar_bitacora`, `duracion`, `miles`), `carga` (`Resumen`, `ejecutar_cargas`) |
+| `probar_conexiones.py` | `configuracion`, `interfaz`, `lz`, `nacional`, `bitacora` (`NOMBRE_LOG`, `configurar_bitacora`, `miles`), `carga` (`SQL_CONSULTA_NACIONAL`, `parametros_carga`) |
 | `carga.py` | `lz`, `nacional`, `bitacora` (`NOMBRE_LOG`, `duracion`, `miles`), `configuracion` (`leer_sentencias`, `leer_plantilla_lote`) |
 | `lz.py` | `bitacora` (`NOMBRE_LOG`), `configuracion` (`MARCADOR_VALORES`) |
 | `nacional.py` | `bitacora` (`NOMBRE_LOG`) |
@@ -97,7 +97,7 @@ pause
 
 ```python
 import configuracion
-from carga import ejecutar_carga
+from carga import Resumen, ejecutar_cargas
 ```
 
 y Python encuentra `src/configuracion.py` y `src/carga.py`.
@@ -130,50 +130,55 @@ ejecutar.bat
     ├── interfaz.solicitar_credenciales(RUTA_FONDO, info, pedir_lz)   → (cred_nacional, cred_lz) o None
     ├── nacional.conectar(dsn, usuario, password)                     → conexión Nacional
     ├── lz.conectar(dsn, usuario?, password?)                         → conexión LZ
-    ├── carga.ejecutar_carga(con_nal, con_lz, config)                 → Resumen
-    │   ├── [1/5] lz.ejecutar(con_lz, leer_sentencias("lz/01_crear_tabla_resultado.sql"))
-    │   ├── [2/5] lz.ejecutar(con_lz, leer_sentencias("lz/02_crear_tabla_temporal.sql"))
-    │   ├── [3/5] _cargar_temporal(con_nal, con_lz, params, filas_por_lote)
-    │   │   ├── leer_sentencias("nacional/consulta_ceautoedt.sql")[0]   → texto de la consulta
-    │   │   ├── leer_plantilla_lote("lz/03_insertar_lote_temporal.sql") → INSERT con {valores}
-    │   │   ├── nacional.contar_filas(con_nal, consulta)              → total (para el avance)
-    │   │   ├── nacional.abrir_consulta(con_nal, consulta)            → cursor
-    │   │   ├── nacional.columnas(cursor)                             → se compara con COLUMNAS_NACIONAL
-    │   │   └── por cada lote de nacional.leer_por_lotes(cursor, filas_por_lote):
-    │   │       └── lz.insertar_lote(con_lz, plantilla, lote)
-    │   ├── [4/5] lz.ejecutar(con_lz, leer_sentencias("lz/04_insertar_resultado.sql"))
-    │   ├── [5/5] lz.consultar_fila(con_lz, leer_sentencias("lz/05_validar_carga.sql")[0])
-    │   └── (siempre) _borrar_temporal → lz.ejecutar(con_lz, leer_sentencias("lz/99_limpieza.sql"))
+    ├── carga.ejecutar_cargas(con_nal, con_lz, config)                → [Resumen, Resumen]
+    │   └── por cada entrada de config["cargas"]:
+    │       ├── params = parametros_carga(config, carga)              → parametros_lz + entrada de cargas
+    │       └── _cargar_tabla(con_nal, con_lz, params, filas_por_lote) → Resumen (o Resumen con error)
+    │           ├── [1/5] lz.ejecutar(con_lz, leer_sentencias("lz/01_crear_tabla_resultado.sql"))
+    │           ├── [2/5] lz.ejecutar(con_lz, leer_sentencias("lz/02_crear_tabla_temporal.sql"))
+    │           ├── [3/5] _cargar_temporal(con_nal, con_lz, params, filas_por_lote)
+    │           │   ├── leer_sentencias("nacional/consulta_origen.sql")[0]     → consulta con FROM {tabla_origen}
+    │           │   ├── leer_plantilla_lote("lz/03_insertar_lote_temporal.sql") → INSERT con {valores}
+    │           │   ├── nacional.contar_filas(con_nal, consulta)              → total (para el avance)
+    │           │   ├── nacional.abrir_consulta(con_nal, consulta)            → cursor
+    │           │   ├── nacional.columnas(cursor)                             → se compara con COLUMNAS_NACIONAL
+    │           │   └── por cada lote de nacional.leer_por_lotes(cursor, filas_por_lote):
+    │           │       └── lz.insertar_lote(con_lz, plantilla, lote)
+    │           ├── [4/5] lz.ejecutar(con_lz, leer_sentencias("lz/04_insertar_resultado.sql"))
+    │           ├── [5/5] lz.consultar_fila(con_lz, leer_sentencias("lz/05_validar_carga.sql")[0])
+    │           └── (siempre) _borrar_temporal → lz.ejecutar(con_lz, leer_sentencias("lz/99_limpieza.sql"))
     ├── (siempre) cierre de con_nal y con_lz
-    └── interfaz.mostrar_resultado("info" | "advertencia" | "error", ...)
+    └── interfaz.mostrar_resultado("info" | "advertencia" | "error", líneas de _linea_resumen)
 ```
 
 ### Paso a paso
 
 **1. Log** — `bitacora.configurar_bitacora` crea `logs/carga_AAAAMMDD_HHMMSS.log` y conecta el logger `carga` a la consola y a ese archivo.
 
-**2. Configuración** — `configuracion.cargar_config` devuelve el contenido de `config.json` como diccionario. `main` arma con él el texto de la ventana (origen, destino, partición).
+**2. Configuración** — `configuracion.cargar_config` devuelve el contenido de `config.json` como diccionario. `main` arma con él el texto de la ventana (DSN, tablas de origen, zona destino, tablas destino, partición).
 
 **3. Credenciales** — `interfaz.solicitar_credenciales` muestra la ventana y devuelve una tupla `(Credenciales, Credenciales o None)`. Si el usuario cancela devuelve `None` y `main` termina.
 
-**4. Conexiones** — `main` abre las dos conexiones antes de extraer datos, para que una falla de conexión se detecte de inmediato. Los objetos de conexión se guardan en `con_nal` y `con_lz`.
+**4. Conexiones** — `main` abre las dos conexiones antes de extraer datos, para que una falla de conexión se detecte de inmediato. Los objetos de conexión se guardan en `con_nal` y `con_lz` y se usan para todas las tablas.
 
-**5. Carga** — `main` llama a `carga.ejecutar_carga(con_nal, con_lz, config)`. Dentro:
+**5. Carga** — `main` llama a `carga.ejecutar_cargas(con_nal, con_lz, config)`. Esta función recorre `config["cargas"]` y, para cada tabla, arma sus parámetros con `parametros_carga` y llama a `_cargar_tabla`. La llamada está dentro de un `try ... except`: si una tabla falla, el error se registra en el log y en su `Resumen`, y se continúa con la siguiente.
+
+Dentro de `_cargar_tabla`:
 
 | Paso | Código | Conexión | Archivo SQL |
 |---|---|---|---|
 | 1 | `lz.ejecutar(...)` | LZ | `lz/01_crear_tabla_resultado.sql` |
 | 2 | `lz.ejecutar(...)` | LZ | `lz/02_crear_tabla_temporal.sql` |
-| 3 | `_cargar_temporal(...)` | Nacional y LZ | `nacional/consulta_ceautoedt.sql`, `lz/03_insertar_lote_temporal.sql` |
+| 3 | `_cargar_temporal(...)` | Nacional y LZ | `nacional/consulta_origen.sql`, `lz/03_insertar_lote_temporal.sql` |
 | 4 | `lz.ejecutar(...)` | LZ | `lz/04_insertar_resultado.sql` |
 | 5 | `lz.consultar_fila(...)` | LZ | `lz/05_validar_carga.sql` |
 | Limpieza | `_borrar_temporal(...)` | LZ | `lz/99_limpieza.sql` |
 
 Los pasos 3 a 5 están dentro de un `try ... finally`; la limpieza está en el `finally`, por lo que se ejecuta aunque alguno falle. Si el paso 3 devuelve 0 filas, la función retorna antes del paso 4 (la limpieza igual se ejecuta).
 
-`ejecutar_carga` devuelve un objeto `Resumen` con `destino`, `filas_extraidas`, `filas_cargadas` y `fechas_nulas`.
+`ejecutar_cargas` devuelve una lista con un `Resumen` por tabla: `origen`, `destino`, `filas_extraidas`, `filas_cargadas`, `fechas_nulas` y `error` (`None` si la tabla terminó bien).
 
-**6. Cierre** — `main` cierra las dos conexiones en un `finally` y muestra el mensaje final con los datos del `Resumen`.
+**6. Cierre** — `main` cierra las dos conexiones en un `finally` y muestra el mensaje final con una línea por tabla, armada por `_linea_resumen`. El mensaje es de error si alguna tabla falló, de advertencia si alguna no tuvo datos y de información si todas terminaron bien.
 
 ---
 
@@ -186,7 +191,7 @@ Toda la lectura de SQL pasa por `configuracion.py`. Ningún otro módulo abre ar
 Las rutas de los archivos están como constantes al inicio de `carga.py`, relativas a la carpeta `sql/`:
 
 ```python
-SQL_CONSULTA_NACIONAL = "nacional/consulta_ceautoedt.sql"
+SQL_CONSULTA_NACIONAL = "nacional/consulta_origen.sql"
 SQL_CREAR_TABLA_RESULTADO = "lz/01_crear_tabla_resultado.sql"
 SQL_CREAR_TABLA_TEMPORAL = "lz/02_crear_tabla_temporal.sql"
 SQL_INSERTAR_LOTE_TEMPORAL = "lz/03_insertar_lote_temporal.sql"
@@ -234,7 +239,7 @@ stored as parquet tblproperties('transactional'='false')
 ;
 ```
 
-Con `params = config["parametros_lz"]` (`zona_p = "proceso_vspc_serv"`, `tabla_temporal = "tmp_visionr_ceautoe"`), `leer_sentencias` devuelve:
+Con los parámetros de la primera tabla (`zona_p = "proceso_vspc_serv"`, `tabla_temporal = "tmp_visionr_ceautoe"`), `leer_sentencias` devuelve:
 
 ```python
 [
@@ -243,24 +248,41 @@ Con `params = config["parametros_lz"]` (`zona_p = "proceso_vspc_serv"`, `tabla_t
 ]
 ```
 
+Con los de la segunda tabla, el mismo archivo produce las sentencias sobre `tmp_visionr_ceautoedt`.
+
 Luego `lz.ejecutar` recorre la lista y ejecuta cada sentencia por separado, porque el driver ODBC de Impala ejecuta una sentencia por llamada.
 
 ### De dónde salen los parámetros
 
-Los parámetros son siempre el bloque `parametros_lz` de `config.json`. El diccionario se obtiene en `carga.ejecutar_carga`:
+Los parámetros de cada tabla son el bloque `parametros_lz` de `config.json` más su entrada en la lista `cargas`. `carga.parametros_carga` los une:
 
 ```python
-params = config["parametros_lz"]
+def parametros_carga(config, carga):
+    return {**config["parametros_lz"], **carga}
 ```
 
-y se pasa a cada llamada de `leer_sentencias` o `leer_plantilla_lote`. Un `{nombre}` en un archivo SQL se reemplaza por `params["nombre"]`. Si el nombre no existe en el config, `_reemplazar_parametros` lanza un `KeyError` que indica el archivo y el parámetro.
+Para la primera tabla el resultado es:
+
+```python
+{
+    "zona_r": "proceso_vspc_serv",
+    "zona_p": "proceso_vspc_serv",
+    "tabla_origen": "VISIONR.CEAUTOE",
+    "tabla_resultado": "visionr_ceautoe",
+    "tabla_temporal": "tmp_visionr_ceautoe",
+}
+```
+
+Ese diccionario se pasa a cada llamada de `leer_sentencias` o `leer_plantilla_lote` de esa tabla. Un `{nombre}` en un archivo SQL se reemplaza por `params["nombre"]`. Si el nombre no existe, `_reemplazar_parametros` lanza un `KeyError` que indica el archivo y el parámetro.
 
 ### Consulta de la Nacional
 
-`consulta_ceautoedt.sql` se lee con la misma función. No contiene parámetros, por lo que el texto queda igual (sin los comentarios) y se toma el primer y único elemento de la lista:
+`consulta_origen.sql` se lee con la misma función. Su único parámetro es `{tabla_origen}` en el `FROM`, por lo que el mismo archivo produce la consulta de cada tabla:
 
 ```python
 consulta = leer_sentencias(SQL_CONSULTA_NACIONAL, params)[0]
+# primera tabla:  SELECT CEAP65 as cod_aplicacion, ... FROM VISIONR.CEAUTOE
+# segunda tabla:  SELECT CEAP65 as cod_aplicacion, ... FROM VISIONR.CEAUTOEDT
 ```
 
 Ese texto se usa dos veces en `_cargar_temporal`:
@@ -352,8 +374,9 @@ CAST(YEAR(CURRENT_DATE()) AS SMALLINT) AS ingestion_year,
 | `nacional.dsn` | `main` → `nacional.conectar` | Conexión a la Nacional |
 | `lz.dsn` | `main` → `lz.conectar` | Conexión a la LZ |
 | `lz.pedir_credenciales` | `main` → `interfaz.solicitar_credenciales` | Mostrar o no los campos de la LZ |
-| `parametros_lz` | `carga.ejecutar_carga` → `leer_sentencias` / `leer_plantilla_lote` | Reemplazar `{parámetros}` en los SQL |
-| `carga.filas_por_lote` | `carga.ejecutar_carga` → `nacional.leer_por_lotes` | Tamaño de cada lote |
+| `parametros_lz` | `carga.parametros_carga` → `leer_sentencias` / `leer_plantilla_lote` | Parámetros comunes a todas las tablas (`{zona_r}`, `{zona_p}`) |
+| `cargas` | `carga.ejecutar_cargas` (recorre la lista), `main` (ventana), `probar_conexiones` | Tablas a cargar y sus parámetros propios (`{tabla_origen}`, `{tabla_resultado}`, `{tabla_temporal}`) |
+| `carga.filas_por_lote` | `carga.ejecutar_cargas` → `nacional.leer_por_lotes` | Tamaño de cada lote |
 
 ### Conexiones
 
@@ -364,16 +387,17 @@ main.main()
   con_nal = nacional.conectar(...)
   con_lz  = lz.conectar(...)
   │
-  └── carga.ejecutar_carga(con_nal, con_lz, config)
-        ├── nacional.contar_filas(con_nal, ...)
-        ├── nacional.abrir_consulta(con_nal, ...)
-        ├── lz.ejecutar(con_lz, ...)
-        ├── lz.insertar_lote(con_lz, ...)
-        └── lz.consultar_fila(con_lz, ...)
+  └── carga.ejecutar_cargas(con_nal, con_lz, config)
+        └── _cargar_tabla(con_nal, con_lz, ...)   ← una vez por tabla, con las mismas conexiones
+              ├── nacional.contar_filas(con_nal, ...)
+              ├── nacional.abrir_consulta(con_nal, ...)
+              ├── lz.ejecutar(con_lz, ...)
+              ├── lz.insertar_lote(con_lz, ...)
+              └── lz.consultar_fila(con_lz, ...)
   (finally) con_nal.close(); con_lz.close()
 ```
 
-Quien abre las conexiones (`main`) es quien las cierra.
+Quien abre las conexiones (`main`) es quien las cierra. Las dos tablas se cargan con las mismas conexiones, una después de otra.
 
 ### Log
 
@@ -390,16 +414,24 @@ log = logging.getLogger(NOMBRE_LOG)
 
 ## Manejo de errores
 
-Los errores no se capturan en los módulos de acceso a datos; suben hasta `main`, que es el único que decide cómo terminar.
+Los errores no se capturan en los módulos de acceso a datos. Hay dos niveles donde se manejan:
+
+- **Por tabla** (`carga.ejecutar_cargas`): un error durante la carga de una tabla se registra en el log y en el `Resumen` de esa tabla, y se continúa con la siguiente.
+- **General** (`main`): los errores fuera de la carga de tablas (configuración, conexiones) detienen el proceso.
 
 ```
-nacional.py / lz.py / configuracion.py / carga.py
+nacional.py / lz.py / configuracion.py
         │  lanzan la excepción
         ▼
-carga.ejecutar_carga  ── finally: _borrar_temporal (no oculta el error original)
+carga._cargar_tabla     ── finally: _borrar_temporal (no oculta el error original)
         │
         ▼
-main.main  ── except: log.exception(...) + mostrar_resultado("error", ...) → return 1
+carga.ejecutar_cargas   ── except: log.exception(...) + Resumen(error=...) → sigue con la siguiente tabla
+        │
+        ▼
+main.main               ── alguna tabla con error → mostrar_resultado("error", ...) → return 1
+
+main.main  ── except (config, conexiones): log.exception(...) + mostrar_resultado("error", ...) → return 1
            └─ finally: cierra las conexiones
 ```
 
@@ -407,9 +439,9 @@ main.main  ── except: log.exception(...) + mostrar_resultado("error", ...) �
 |---|---|---|
 | `ConnectionError` | `nacional.conectar`, `lz.conectar` | Falla de conexión. El mensaje incluye el DSN y una sugerencia |
 | `KeyError` | `configuracion._reemplazar_parametros` | Un SQL usa un parámetro que no está en `config.json` |
-| `ValueError` | `carga._cargar_temporal` | Las columnas de la consulta no coinciden con `COLUMNAS_NACIONAL` |
-| `RuntimeError` | `carga.ejecutar_carga` | El conteo de la partición no coincide con las filas extraídas |
-| `pyodbc.Error` | `nacional.py`, `lz.py` | Error de SQL o de permisos en la base de datos |
+| `ValueError` | `carga._cargar_temporal` | Las columnas de la consulta no coinciden con `COLUMNAS_NACIONAL` (error por tabla) |
+| `RuntimeError` | `carga._cargar_tabla` | El conteo de la partición no coincide con las filas extraídas (error por tabla) |
+| `pyodbc.Error` | `nacional.py`, `lz.py` | Error de SQL o de permisos en la base de datos (error por tabla si ocurre durante su carga) |
 
 Casos que no detienen el proceso:
 
@@ -417,7 +449,8 @@ Casos que no detienen el proceso:
 |---|---|---|
 | Falla el `COUNT(*)` de la Nacional | `nacional.contar_filas` | Devuelve `None`, registra una advertencia; el avance se muestra sin total |
 | Falla el borrado de la temporal | `carga._borrar_temporal` | Registra una advertencia; la siguiente ejecución la borra |
-| Fechas inválidas | `carga.ejecutar_carga` (paso 5) | Registra una advertencia con la cantidad |
+| Fechas inválidas | `carga._cargar_tabla` (paso 5) | Registra una advertencia con la cantidad |
+| Falla una tabla | `carga.ejecutar_cargas` | Se registra el error y se carga la siguiente tabla |
 
 ---
 
@@ -433,12 +466,14 @@ probar_conexiones.bat
     ├── interfaz.solicitar_credenciales(..., texto_boton="Probar conexiones")
     ├── _probar_nacional(config, cred_nal)
     │   ├── nacional.conectar(dsn, usuario, password)
-    │   ├── configuracion.leer_sentencias("nacional/consulta_ceautoedt.sql")[0]
-    │   └── nacional.contar_filas(con, consulta)       → SELECT COUNT(*) FROM (<consulta>) AS origen
+    │   └── por cada entrada de config["cargas"]:
+    │       ├── configuracion.leer_sentencias("nacional/consulta_origen.sql", parametros_carga(...))[0]
+    │       └── nacional.contar_filas(con, consulta)   → SELECT COUNT(*) FROM (<consulta>) AS origen
     ├── _probar_lz(config, cred_lz)
     │   ├── lz.conectar(dsn, usuario?, password?)
     │   ├── lz.consultar_fila(con, "SELECT user()")
-    │   └── lz.consultar_fila(con, "SHOW TABLES IN {zona_r} LIKE '{tabla_resultado}'")
+    │   └── por cada entrada de config["cargas"]:
+    │       └── lz.consultar_fila(con, "SHOW TABLES IN {zona_r} LIKE '{tabla_resultado}'")
     └── interfaz.mostrar_resultado("info" | "error", ...)
 ```
 
@@ -446,7 +481,7 @@ Diferencias con la carga:
 
 - Cada prueba captura sus propios errores y devuelve `(ok, texto)`, para que una falla no impida probar la otra conexión.
 - Cada prueba abre y cierra su propia conexión.
-- No usa `carga.ejecutar_carga`; de `carga.py` solo toma la constante `SQL_CONSULTA_NACIONAL`, para leer el mismo archivo que usa la carga.
+- No usa `carga.ejecutar_cargas`; de `carga.py` solo toma la constante `SQL_CONSULTA_NACIONAL` y la función `parametros_carga`, para leer la misma consulta que usa la carga con los mismos parámetros.
 
 ---
 
@@ -495,20 +530,23 @@ La construcción se hace en dos fases porque el tamaño de la ventana depende de
 |---|---|---|---|
 | `main` | `main.py` | `ejecutar.bat` | Orquesta la carga |
 | `main` | `probar_conexiones.py` | `probar_conexiones.bat` | Orquesta la prueba de conexiones |
-| `_probar_nacional` | `probar_conexiones.py` | `probar_conexiones.main` | Conecta y cuenta filas en la Nacional |
-| `_probar_lz` | `probar_conexiones.py` | `probar_conexiones.main` | Conecta, consulta el usuario y la zona destino |
-| `ejecutar_carga` | `carga.py` | `main.main` | Pasos 1 a 5 y limpieza |
-| `_cargar_temporal` | `carga.py` | `ejecutar_carga` | Paso 3: Nacional → temporal por lotes |
+| `_linea_resumen` | `main.py` | `main.main` | Texto del resultado de una tabla para el mensaje final |
+| `_probar_nacional` | `probar_conexiones.py` | `probar_conexiones.main` | Conecta y cuenta las filas de cada tabla de origen |
+| `_probar_lz` | `probar_conexiones.py` | `probar_conexiones.main` | Conecta, consulta el usuario, la zona y cada tabla destino |
+| `ejecutar_cargas` | `carga.py` | `main.main` | Recorre `cargas` y carga cada tabla; aísla los errores por tabla |
+| `parametros_carga` | `carga.py` | `ejecutar_cargas`, `_probar_nacional` | Une `parametros_lz` con la entrada de una tabla |
+| `_cargar_tabla` | `carga.py` | `ejecutar_cargas` | Pasos 1 a 5 y limpieza de una tabla |
+| `_cargar_temporal` | `carga.py` | `_cargar_tabla` | Paso 3: Nacional → temporal por lotes |
 | `_tiempo_restante` | `carga.py` | `_cargar_temporal` | Estimación del tiempo restante |
-| `_borrar_temporal` | `carga.py` | `ejecutar_carga` | Ejecuta `99_limpieza.sql` |
+| `_borrar_temporal` | `carga.py` | `_cargar_tabla` | Ejecuta `99_limpieza.sql` |
 | `conectar` | `nacional.py` | `main`, `_probar_nacional` | Conexión ODBC a la Nacional |
 | `contar_filas` | `nacional.py` | `_cargar_temporal`, `_probar_nacional` | `COUNT(*)` sobre la consulta |
 | `abrir_consulta` | `nacional.py` | `_cargar_temporal` | Ejecuta la consulta y devuelve el cursor |
 | `columnas` | `nacional.py` | `_cargar_temporal` | Nombres de columnas del cursor |
 | `leer_por_lotes` | `nacional.py` | `_cargar_temporal` | Generador de lotes con `fetchmany` |
 | `conectar` | `lz.py` | `main`, `_probar_lz` | Conexión ODBC a la LZ |
-| `ejecutar` | `lz.py` | `ejecutar_carga`, `_borrar_temporal` | Ejecuta una lista de sentencias |
-| `consultar_fila` | `lz.py` | `ejecutar_carga`, `_probar_lz` | Ejecuta una consulta y devuelve la primera fila |
+| `ejecutar` | `lz.py` | `_cargar_tabla`, `_borrar_temporal` | Ejecuta una lista de sentencias |
+| `consultar_fila` | `lz.py` | `_cargar_tabla`, `_probar_lz` | Ejecuta una consulta y devuelve la primera fila |
 | `insertar_lote` | `lz.py` | `_cargar_temporal` | Arma y ejecuta el `INSERT ... VALUES` de un lote |
 | `_literal`, `_a_texto` | `lz.py` | `insertar_lote` | Convierte valores a literales de Impala |
 | `_resumir` | `lz.py` | `ejecutar` | Resumen de la sentencia para el log |

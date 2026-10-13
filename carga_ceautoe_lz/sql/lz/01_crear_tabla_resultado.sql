@@ -21,6 +21,6 @@ partitioned by (
     ingestion_month     smallint        comment 'Mes de ingestión de la información.',
     ingestion_day       smallint        comment 'Día de ingestión de la información.'
 )
-comment 'Copia de VISIONR.CEAUTOEDT de la Nacional (AS/400).'
+comment 'Copia de {tabla_origen} de la Nacional (AS/400).'
 stored as parquet tblproperties('transactional'='false')
 ;
