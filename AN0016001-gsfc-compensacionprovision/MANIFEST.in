@@ -1,0 +1,4 @@
+include src/an0016001_gsfc_compensacionprovision/static/*.json
+include src/an0016001_gsfc_compensacionprovision/static/sql/ExtractTransformLoad/*.sql
+include versioneer.py
+include src/an0016001_gsfc_compensacionprovision/_version.py

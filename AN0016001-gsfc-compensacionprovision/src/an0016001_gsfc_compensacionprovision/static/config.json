@@ -1,0 +1,15 @@
+{
+    "global"               : {
+        "dsn"      : "impala-virtual-prd",
+        "parametros_lz"       : {
+            "prefijo"            : "tmp_",
+            "zona_procesamiento" : "proceso_vspc_finanzas",
+            "in_oozie"           : "resultados.reporte_flujos_oozie"
+        }    
+    },
+    "ExtractTransformLoad" : {
+        "tareas"                : [
+            {"nombre" : "ejecutar_modulos"            , "kwargs" : []}
+        ]
+    }
+}
