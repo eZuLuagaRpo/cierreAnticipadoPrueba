@@ -1,15 +1,38 @@
 {
     "global"               : {
-        "dsn"      : "impala-virtual-prd",
+        "dsn" : "Impala-cdp-kudu",
+        "cdp_endpoint" : "https://bancolombia-rt-prd01-master10.bco-cdp.i5u2-f1yr.cloudera.site/bancolombia-rt-prd01/cdp-proxy-api/",
+        "username" : "srv_svccdp03",
+        "useSparky": false,
         "parametros_lz"       : {
-            "prefijo"            : "tmp_",
-            "zona_procesamiento" : "proceso_vspc_finanzas",
-            "in_oozie"           : "resultados.reporte_flujos_oozie"
-        }    
+            "nom_proyecto"                              :  "an0016001-gsfc-compensacionprovision",
+            "indice"                                    :  "temp",
+            "zona_procesamiento"                        :  "proceso_vspc_finanzas",
+            "zona_ceautoedt"                            :  "proceso_vspc_finanzas",
+            "zona_s_apoyo_financiero"                   :  "s_apoyo_financiero",
+            "zona_s_productos"                          :  "s_productos"
+        }
     },
-    "ExtractTransformLoad" : {
-        "tareas"                : [
-            {"nombre" : "ejecutar_modulos"            , "kwargs" : []}
-        ]
+    "ExtractTransformLoad": {
+        "tareas": [
+            {
+                "nombre": "ultima_ingestion",
+                "kwargs": []
+            },
+            {
+                "nombre": "fn_ejecutar_etl",
+                "kwargs": []
+            }
+        ],
+        "archivos": [
+            "etl/01_ceautoedt_base.sql",
+            "etl/02_allinf_contable.sql",
+            "etl/03_peq_bvl_sap.sql",
+            "etl/04_consolidado_homologacion_sap.sql",
+            "etl/999_limpieza.sql"
+        ],
+        "tablas": {
+            "ALLINF" : "s_apoyo_financiero.ccsap_visionr_allinf"
+        }
     }
 }

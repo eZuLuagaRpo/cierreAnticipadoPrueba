@@ -87,16 +87,60 @@ class ExtractTransformLoad(Step):
 
     def ejecutar(self):
         """
-        Función que ejecuta el paso de la clase.
+        Función que ejecuta el paso de la clase. Reúne los
+        parámetros generales (obtener_params) con la
+        configuración del paso definida en static/config.json
+        y ejecuta las tareas en el orden configurado.
         """
+        cfg = self.getStepConfig()
+        self.params = self.obtener_params()
+        self.params.update(cfg)
         self.log.info(json.dumps(
-            self.obtener_params(), \
+            self.params, \
             indent = 4, sort_keys = True))
+        self.hp = self.getHelper()
+        self.list_sql_file = cfg["archivos"]
         self.executeTasks()
+
+    def ultima_ingestion(self):
+        """
+        Función que consulta la última ingestión (year, month,
+        day) de cada tabla definida en el diccionario tablas
+        de static/config.json y la deja disponible como
+        parámetro para los SQL, por ejemplo {ALLINF[year]},
+        {ALLINF[month]} y {ALLINF[day]}.
+        """
+        helper = self.getHelper()
+        cfg = self.getStepConfig()
+        self.params.update(cfg)
+        self.params.update({
+            tabla : helper.obtener_ultima_ingestion(ruta)
+            for tabla, ruta in self.params["tablas"].items()
+            if tabla not in self.params
+        })
+        self.setPayload(self.params)
+
+    def fn_ejecutar_etl(self):
+        """
+        Función que ejecuta secuencialmente cada una de las
+        consultas definidas en la lista archivos del paso en
+        static/config.json, con los parámetros reunidos por
+        ejecutar y ultima_ingestion.
+        """
+        self.log.print_encabezado()
+        cfg = self.getStepConfig()
+        self.params = self.getPayload()
+        self.params.update(cfg)
+        for file in self.list_sql_file:
+            archivo = self.getSQLPath() + file
+            self.hp.ejecutar_archivo(archivo, self.params)
 
     def ejecutar_modulos(self):
         """
         Función que ejecuta los módulos de información.
+        Ejecuta todos los SQL de la carpeta static/sql con el
+        nombre de la clase. No se usa en la configuración
+        actual: los SQL se ejecutan con fn_ejecutar_etl.
         """
         self.executeFolder(self.getSQLPath() + \
             type(self).__name__, self.obtener_params())
